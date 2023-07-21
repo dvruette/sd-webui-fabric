@@ -32,10 +32,13 @@ def patch_unet_forward_pass(p, unet, params):
                 module.attn1._fabric_old_forward = module.attn1.forward
 
         # add noise to reference latents
-        all_latents = torch.stack(params.pos_latents + params.neg_latents, dim=0)
-        all_zs = p.sd_model.q_sample(all_latents, torch.round(timesteps.float()).long())
-        # TODO: confirm that slicing like this is correct for separating cond/uncond batch
-        all_zs = all_zs[:all_zs.size(0) // 2]
+        all_zs = []
+        for latent in params.pos_latents + params.neg_latents:
+            z = p.sd_model.q_sample(latent.unsqueeze(0), torch.round(timesteps.float()).long())[0]
+            all_zs.append(z)
+        all_zs = torch.stack(all_zs, dim=0)
+        print(all_zs.shape)
+        print(all_zs[:, 0, 0, 0])
 
         ## cache hidden states
         cached_hiddens = []
@@ -65,6 +68,11 @@ def patch_unet_forward_pass(p, unet, params):
             seq_len, d_model = x.shape[1:]
             num_pos = len(params.pos_latents)
             num_neg = len(params.neg_latents)
+            print("num_pos", num_pos)
+            print("num_neg", num_neg)
+            print("seq_len", seq_len)
+            print("d_model", d_model)
+            print(cached_hs.shape)
 
             pos_hs = cached_hs[:num_pos].view(1, num_pos * seq_len, d_model).expand(batch_size, -1, -1)  # (bs, seq * n_pos, dim)
             neg_hs = cached_hs[num_pos:].view(1, num_neg * seq_len, d_model).expand(batch_size, -1, -1)  # (bs, seq * n_neg, dim)
