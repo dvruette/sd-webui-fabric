@@ -3,6 +3,7 @@
 Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Expect bugs and rough edges and feel free to contribute if you know how to code.
 
 📜 Paper: https://arxiv.org/abs/2307.10159
+
 🎨 Project page: https://sd-fabric.github.io
 
 ## Installation
