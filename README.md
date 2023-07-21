@@ -1,6 +1,6 @@
 # FABRIC Plugin for Stable Diffusion WebUI
 
-Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Expect bugs and rough edges and feel free to contribute if you know how to code.
+Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Expect bugs and rough edges and feel free to contribute if you know how fix them.
 
 📜 Paper: https://arxiv.org/abs/2307.10159
 
