@@ -16,7 +16,7 @@ from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.2"
+__version__ = "0.2.1"
 
 DEBUG = False
 
