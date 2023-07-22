@@ -6,6 +6,8 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 
 🎨 Project page: https://sd-fabric.github.io
 
+![demo](static/fabric_demo.gif)
+
 ## Installation
 
 1. Open the "Extensions" tab
