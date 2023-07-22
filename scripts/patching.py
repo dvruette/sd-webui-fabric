@@ -5,6 +5,8 @@ from modules import devices, images
 
 from ldm.modules.attention import BasicTransformerBlock
 
+from scripts.marking import patch_process_sample, unmark_prompt_context
+
 
 def encode_to_latent(p, image, size):
     w, h = size
@@ -53,11 +55,13 @@ def patch_unet_forward_pass(p, unet, params):
     if not hasattr(unet, "_fabric_old_forward"):
         unet._fabric_old_forward = unet.forward
 
-    batch_size = p.batch_size
-
     null_ctx = p.sd_model.get_learned_conditioning([""])
 
     def new_forward(self, x, timesteps=None, context=None, **kwargs):
+        _, uncond_ids, context = unmark_prompt_context(context)
+        cond_ids = [i for i in range(context.size(0)) if i not in uncond_ids]
+        has_cond = len(cond_ids) > 0
+        has_uncond = len(uncond_ids) > 0
 
         w_latent, h_latent = x.shape[-2:]
         w, h = 8 * w_latent, 8 * h_latent
@@ -66,15 +70,17 @@ def patch_unet_forward_pass(p, unet, params):
                 return self._fabric_old_forward(x, timesteps, context, **kwargs)
 
         pos_latents, neg_latents = get_latents_from_params(p, params, w, h)
+        pos_latents = pos_latents if has_cond else []
+        neg_latents = neg_latents if has_uncond else []
+        all_latents = pos_latents + neg_latents
+        if len(all_latents) == 0:
+            return self._fabric_old_forward(x, timesteps, context, **kwargs)
 
         # add noise to reference latents
         all_zs = []
-        for latent in pos_latents + neg_latents:
+        for latent in all_latents:
             z = p.sd_model.q_sample(latent.unsqueeze(0), torch.round(timesteps.float()).long())[0]
             all_zs.append(z)
-        
-        if len(all_zs) == 0:
-            raise ValueError("No feedback images provided for FABRIC, not sure how you even got here.")
         all_zs = torch.stack(all_zs, dim=0)
 
         # save original forward pass
@@ -111,18 +117,23 @@ def patch_unet_forward_pass(p, unet, params):
             seq_len, d_model = x.shape[1:]
             num_pos = len(pos_latents)
             num_neg = len(neg_latents)
+            num_cond = len(cond_ids)
+            num_uncond = len(uncond_ids)
 
-            pos_hs = cached_hs[:num_pos].view(1, num_pos * seq_len, d_model).expand(batch_size, -1, -1)  # (bs, seq * n_pos, dim)
-            neg_hs = cached_hs[num_pos:].view(1, num_neg * seq_len, d_model).expand(batch_size, -1, -1)  # (bs, seq * n_neg, dim)
-
-            x_cond = x[:batch_size]  # (bs, seq, dim)
-            x_uncond = x[batch_size:]  # (bs, seq, dim)
-            ctx_cond = torch.cat([context[:batch_size], pos_hs], dim=1)  # (bs, seq * (1 + n_pos), dim)
-            ctx_uncond = torch.cat([context[batch_size:], neg_hs], dim=1)  # (bs, seq * (1 + n_neg), dim)
-
-            out_cond = attn1._fabric_old_forward(x_cond, ctx_cond, **kwargs)  # (bs, seq, dim)
-            out_uncond = attn1._fabric_old_forward(x_uncond, ctx_uncond, **kwargs)  # (bs, seq, dim)
-            out = torch.cat([out_cond, out_uncond], dim=0)
+            outs = []
+            if num_cond > 0:
+                pos_hs = cached_hs[:num_pos].view(1, num_pos * seq_len, d_model).expand(num_cond, -1, -1)  # (n_cond, seq * n_pos, dim)
+                x_cond = x[cond_ids]  # (n_cond, seq, dim)
+                ctx_cond = torch.cat([context[cond_ids], pos_hs], dim=1)  # (n_cond, seq * (1 + n_pos), dim)
+                out_cond = attn1._fabric_old_forward(x_cond, ctx_cond, **kwargs)  # (n_cond, seq, dim)
+                outs.append(out_cond)
+            if num_uncond > 0:
+                neg_hs = cached_hs[num_pos:].view(1, num_neg * seq_len, d_model).expand(num_uncond, -1, -1)  # (n_uncond, seq * n_neg, dim)
+                x_uncond = x[uncond_ids]  # (n_uncond, seq, dim)
+                ctx_uncond = torch.cat([context[uncond_ids], neg_hs], dim=1)  # (n_uncond, seq * (1 + n_neg), dim)
+                out_uncond = attn1._fabric_old_forward(x_uncond, ctx_uncond, **kwargs)  # (n_uncond, seq, dim)
+                outs.append(out_uncond)
+            out = torch.cat(outs, dim=0)
             return out
 
         # patch forward pass to inject cached hidden states
@@ -142,6 +153,8 @@ def patch_unet_forward_pass(p, unet, params):
         return out
     
     unet.forward = new_forward.__get__(unet)
+
+    patch_process_sample(p)
 
 def unpatch_unet_forward_pass(unet):
     if hasattr(unet, "_fabric_old_forward"):

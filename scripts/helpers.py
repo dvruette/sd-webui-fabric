@@ -14,7 +14,6 @@ class WebUiComponents:
     def register_component(component, **kwargs):
         elem_id = getattr(component, "elem_id", None)
         if elem_id == "txt2img_gallery":
-            print("Registering txt2img_gallery")
             WebUiComponents.txt2img_gallery = component
             for callback in WebUiComponents.txt2img_callbacks:
                 callback(component)

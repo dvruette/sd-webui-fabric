@@ -15,9 +15,9 @@ from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
-DEBUG = False
+DEBUG = True
 
 """
 # Gradio 3.32 bug fix
@@ -127,7 +127,7 @@ class FabricScript(modules.scripts.Script):
                     feedback_max_weight = gr.Slider(0.0, 1.0, value=0.8, label="Max. weight")
                     feedback_neg_scale = gr.Slider(0.0, 1.0, value=0.5, label="Neg. scale")
                 with gr.Row():
-                    feedback_during_high_res_fix = gr.Checkbox(label="Enable feedback during Hires. fix", value=False)
+                    feedback_during_high_res_fix = gr.Checkbox(label="Enable feedback during hires. fix", value=False)
 
 
         WebUiComponents.on_txt2img_gallery(self.register_txt2img_gallery_select)
