@@ -15,7 +15,7 @@ from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 
 DEBUG = False
 
@@ -53,6 +53,7 @@ class FabricParams:
     neg_images: list = dataclasses.field(default_factory=list)
     pos_latents: list = None
     neg_latents: list = None
+    feedback_during_high_res_fix: bool = False
 
 
 # TODO: replace global state with Gradio state

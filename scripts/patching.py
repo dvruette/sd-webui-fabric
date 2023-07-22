@@ -25,7 +25,7 @@ def get_latents_from_params(p, params, width, height):
     w_latent, h_latent = width // 8, height // 8
     # check if latents need to be computed or recomputed (if image size changed e.g. due to high-res fix)
     if params.pos_latents is None:
-        pos_latents = [encode_to_latent(p, img, (width, height)) for img in params.liked_images]
+        pos_latents = [encode_to_latent(p, img, (width, height)) for img in params.pos_images]
     else:
         pos_latents = []
         for latent in params.pos_latents:
@@ -35,7 +35,7 @@ def get_latents_from_params(p, params, width, height):
         params.pos_latents = pos_latents
     # do the same for negative latents
     if params.neg_latents is None:
-        neg_latents = [encode_to_latent(p, img, (width, height)) for img in params.disliked_images]
+        neg_latents = [encode_to_latent(p, img, (width, height)) for img in params.neg_images]
     else:
         neg_latents = []
         for latent in params.neg_latents:
@@ -47,7 +47,7 @@ def get_latents_from_params(p, params, width, height):
 
 
 def patch_unet_forward_pass(p, unet, params):
-    if not params.liked_images and not params.disliked_images:
+    if not params.pos_images and not params.neg_images:
         return
 
     if not hasattr(unet, "_fabric_old_forward"):
@@ -58,13 +58,13 @@ def patch_unet_forward_pass(p, unet, params):
     null_ctx = p.sd_model.get_learned_conditioning([""])
 
     def new_forward(self, x, timesteps=None, context=None, **kwargs):
-        # save original forward pass
-        for module in self.modules():
-            if isinstance(module, BasicTransformerBlock):
-                module.attn1._fabric_old_forward = module.attn1.forward
 
         w_latent, h_latent = x.shape[-2:]
         w, h = 8 * w_latent, 8 * h_latent
+        if w != p.width or h != p.height:
+            if not params.feedback_during_high_res_fix:
+                return self._fabric_old_forward(x, timesteps, context, **kwargs)
+
         pos_latents, neg_latents = get_latents_from_params(p, params, w, h)
 
         # add noise to reference latents
@@ -77,8 +77,13 @@ def patch_unet_forward_pass(p, unet, params):
             raise ValueError("No feedback images provided for FABRIC, not sure how you even got here.")
         all_zs = torch.stack(all_zs, dim=0)
 
+        # save original forward pass
+        for module in self.modules():
+            if isinstance(module, BasicTransformerBlock):
+                module.attn1._fabric_old_forward = module.attn1.forward
 
         ## cache hidden states
+
         cached_hiddens = []
         def patched_attn1_forward(attn1, x, **kwargs):
             cached_hiddens.append(x.detach().clone())
