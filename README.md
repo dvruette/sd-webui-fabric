@@ -13,6 +13,9 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 3. Copy-paste `https://github.com/dvruette/sd-webui-fabric.git` into "URL for extension's git repository" and press "Install"
 5. Switch to the "Installed" tab and press "Apply and restart UI"
 
+### Compatibility Notes
+- The plugin is INCOMPATIBLE with `reference` mode in the ControlNet plugin. Instead of using a reference image, simply add it as a liked image. If you accidentally enable FABRIC and `reference` mode at the same time, you will have to restart the WebUI to fix it.
+
 
 ## How-to and Examples
 
