@@ -21,3 +21,16 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 ## How-to and Examples
 
 Coming soon. Feel free to share examples with us if you have found something that works well and we'll add it here :)
+
+
+## Citation
+```
+@misc{vonrutte2023fabric,
+      title={FABRIC: Personalizing Diffusion Models with Iterative Feedback}, 
+      author={Dimitri von Rütte and Elisabetta Fedele and Jonathan Thomm and Lukas Wolf},
+      year={2023},
+      eprint={2307.10159},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV}
+}
+```
