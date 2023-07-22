@@ -3,10 +3,15 @@ import torch
 from ldm.modules.attention import BasicTransformerBlock
 
 def patch_unet_forward_pass(p, unet, params):
+    if not params.pos_latents and not params.neg_latents:
+        return
+
     if not hasattr(unet, "_fabric_old_forward"):
         unet._fabric_old_forward = unet.forward
 
     batch_size = p.batch_size
+
+    null_ctx = p.sd_model.get_learned_conditioning([""])
 
     def new_forward(self, x, timesteps=None, context=None, **kwargs):
         # save original forward pass
@@ -19,7 +24,11 @@ def patch_unet_forward_pass(p, unet, params):
         for latent in params.pos_latents + params.neg_latents:
             z = p.sd_model.q_sample(latent.unsqueeze(0), torch.round(timesteps.float()).long())[0]
             all_zs.append(z)
+        
+        if len(all_zs) == 0:
+            raise ValueError("No feedback images provided for FABRIC, not sure how you even got here.")
         all_zs = torch.stack(all_zs, dim=0)
+
 
         ## cache hidden states
         cached_hiddens = []
@@ -36,8 +45,8 @@ def patch_unet_forward_pass(p, unet, params):
         # run forward pass just to cache hidden states, output is discarded
         all_zs = all_zs.to(x.device, dtype=self.dtype)
         ts = timesteps[:1].expand(all_zs.size(0))  # (n_pos + n_neg,)
-        # TODO: instead of using the negative prompt, use the null prompt
-        ctx = context[batch_size:][:1].expand(all_zs.size(0), -1, -1)  # (n_pos + n_neg, p_seq, p_dim)
+        # use the null prompt for pre-computing hidden states on feedback images
+        ctx = null_ctx.expand(all_zs.size(0), -1, -1)  # (n_pos + n_neg, p_seq, p_dim)
         _ = self._fabric_old_forward(all_zs, ts, ctx)
 
         def patched_attn1_forward(attn1, x, context=None, **kwargs):

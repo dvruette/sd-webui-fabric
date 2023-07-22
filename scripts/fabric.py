@@ -16,7 +16,7 @@ from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.2.1"
+__version__ = "0.3"
 
 DEBUG = False
 
@@ -36,9 +36,9 @@ def use_feedback(params):
         return False
     if params.max_weight <= 0:
         return False
-    if params.neg_scale <= 0 and len(params.pos_latents) == 0:
+    if params.neg_scale <= 0 and len(params.pos_images) == 0:
         return False
-    if len(params.pos_latents) == 0 and len(params.neg_latents) == 0:
+    if len(params.pos_images) == 0 and len(params.neg_images) == 0:
         return False
     return True
 
@@ -50,8 +50,10 @@ class FabricParams:
     min_weight: float = 0.0
     max_weight: float = 0.8
     neg_scale: float = 0.5
-    pos_latents: list = dataclasses.field(default_factory=list)
-    neg_latents: list = dataclasses.field(default_factory=list)
+    pos_images: list = dataclasses.field(default_factory=list)
+    neg_images: list = dataclasses.field(default_factory=list)
+    pos_latents: list = None
+    neg_latents: list = None
 
 
 # TODO: replace global state with Gradio state
@@ -259,6 +261,9 @@ class FabricScript(modules.scripts.Script):
             feedback_neg_scale,
         ) = args
 
+        likes = liked_images[:int(feedback_max_images)]
+        dislikes = disliked_images[:int(feedback_max_images)]
+
         params = FabricParams(
             enabled=(not feedback_disabled),
             start=feedback_start,
@@ -266,16 +271,16 @@ class FabricScript(modules.scripts.Script):
             min_weight=feedback_min_weight,
             max_weight=feedback_max_weight,
             neg_scale=feedback_neg_scale,
-            pos_latents=pos_latents,
-            neg_latents=neg_latents,
+            pos_images=likes,
+            neg_images=dislikes,
+            pos_latents=None,
+            neg_latents=None,
         )
 
-        if use_feedback(params):
+        if DEBUG or use_feedback(params):
             print("[FABRIC] Encoding feedback images into latent space...")
-            likes = liked_images[:int(feedback_max_images)]
-            dislikes = disliked_images[:int(feedback_max_images)]
-            pos_latents = encode_to_latent(p, likes)
-            neg_latents = encode_to_latent(p, dislikes)
+            params.pos_latents = encode_to_latent(p, likes)
+            params.neg_latents = encode_to_latent(p, dislikes)
 
             print("[FABRIC] Patching U-Net forward pass...")
             unet = p.sd_model.model.diffusion_model
