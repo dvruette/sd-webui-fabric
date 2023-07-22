@@ -126,6 +126,8 @@ class FabricScript(modules.scripts.Script):
                     feedback_min_weight = gr.Slider(0.0, 1.0, value=0.0, label="Min. weight")
                     feedback_max_weight = gr.Slider(0.0, 1.0, value=0.8, label="Max. weight")
                     feedback_neg_scale = gr.Slider(0.0, 1.0, value=0.5, label="Neg. scale")
+                with gr.Rows():
+                    feedback_during_high_res_fix = gr.Checkbox(label="Enable feedback during Hires. fix", value=False)
 
 
         WebUiComponents.on_txt2img_gallery(self.register_txt2img_gallery_select)
@@ -178,6 +180,7 @@ class FabricScript(modules.scripts.Script):
             feedback_min_weight,
             feedback_max_weight,
             feedback_neg_scale,
+            feedback_during_high_res_fix,
         ]
     
 
@@ -241,6 +244,7 @@ class FabricScript(modules.scripts.Script):
             feedback_min_weight, 
             feedback_max_weight, 
             feedback_neg_scale,
+            feedback_during_high_res_fix,
         ) = args
 
         likes = liked_images[:int(feedback_max_images)]
@@ -255,6 +259,7 @@ class FabricScript(modules.scripts.Script):
             neg_scale=feedback_neg_scale,
             pos_images=likes,
             neg_images=dislikes,
+            feedback_during_high_res_fix=feedback_during_high_res_fix,
         )
 
         if DEBUG or use_feedback(params):
