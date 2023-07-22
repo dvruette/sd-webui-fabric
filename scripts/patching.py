@@ -2,22 +2,7 @@ import torch
 
 from ldm.modules.attention import BasicTransformerBlock
 
-
-def use_feedback(params):
-    if params.start >= params.end and params.min_weight <= 0:
-        return False
-    if params.max_weight <= 0:
-        return False
-    if params.neg_scale <= 0 and len(params.pos_latents) == 0:
-        return False
-    if len(params.pos_latents) == 0 and len(params.neg_latents) == 0:
-        return False
-    return True
-
 def patch_unet_forward_pass(p, unet, params):
-    if not use_feedback(params):
-        return
-    
     if not hasattr(unet, "_fabric_old_forward"):
         unet._fabric_old_forward = unet.forward
 

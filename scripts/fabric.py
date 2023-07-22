@@ -29,8 +29,22 @@ gradio_tempfile_path = os.path.join(tempfile.gettempdir(), 'gradio')
 os.makedirs(gradio_tempfile_path, exist_ok=True)
 
 
+def use_feedback(params):
+    if not params.enabled:
+        return False
+    if params.start >= params.end and params.min_weight <= 0:
+        return False
+    if params.max_weight <= 0:
+        return False
+    if params.neg_scale <= 0 and len(params.pos_latents) == 0:
+        return False
+    if len(params.pos_latents) == 0 and len(params.neg_latents) == 0:
+        return False
+    return True
+
 @dataclass
 class FabricParams:
+    enabled: bool = True
     start: float = 0.0
     end: float = 0.8
     min_weight: float = 0.0
@@ -245,7 +259,18 @@ class FabricScript(modules.scripts.Script):
             feedback_neg_scale,
         ) = args
 
-        if not feedback_disabled:
+        params = FabricParams(
+            enabled=(not feedback_disabled),
+            start=feedback_start,
+            end=feedback_end,
+            min_weight=feedback_min_weight,
+            max_weight=feedback_max_weight,
+            neg_scale=feedback_neg_scale,
+            pos_latents=pos_latents,
+            neg_latents=neg_latents,
+        )
+
+        if use_feedback(params):
             print("[FABRIC] Encoding feedback images into latent space...")
             likes = liked_images[:int(feedback_max_images)]
             dislikes = disliked_images[:int(feedback_max_images)]
@@ -253,15 +278,6 @@ class FabricScript(modules.scripts.Script):
             neg_latents = encode_to_latent(p, dislikes)
 
             print("[FABRIC] Patching U-Net forward pass...")
-            params = FabricParams(
-                start=feedback_start,
-                end=feedback_end,
-                min_weight=feedback_min_weight,
-                max_weight=feedback_max_weight,
-                neg_scale=feedback_neg_scale,
-                pos_latents=pos_latents,
-                neg_latents=neg_latents,
-            )
             unet = p.sd_model.model.diffusion_model
             patch_unet_forward_pass(p, unet, params)
     
