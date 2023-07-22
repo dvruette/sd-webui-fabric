@@ -4,8 +4,6 @@ from ldm.modules.attention import BasicTransformerBlock
 
 
 def use_feedback(params):
-    if not params.enabled:
-        return False
     if params.start >= params.end and params.min_weight <= 0:
         return False
     if params.max_weight <= 0:
