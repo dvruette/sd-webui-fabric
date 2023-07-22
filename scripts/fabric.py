@@ -126,7 +126,7 @@ class FabricScript(modules.scripts.Script):
                     feedback_min_weight = gr.Slider(0.0, 1.0, value=0.0, label="Min. weight")
                     feedback_max_weight = gr.Slider(0.0, 1.0, value=0.8, label="Max. weight")
                     feedback_neg_scale = gr.Slider(0.0, 1.0, value=0.5, label="Neg. scale")
-                with gr.Rows():
+                with gr.Row():
                     feedback_during_high_res_fix = gr.Checkbox(label="Enable feedback during Hires. fix", value=False)
 
 
