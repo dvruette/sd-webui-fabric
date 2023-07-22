@@ -5,18 +5,17 @@ from pathlib import Path
 from dataclasses import dataclass
 
 import gradio as gr
-import torchvision.transforms.functional as functional
 from PIL import Image
 
 import modules.scripts
-from modules import devices, script_callbacks, images
+from modules import script_callbacks
 from modules.ui_components import FormGroup
 
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.3"
+__version__ = "0.3.1"
 
 DEBUG = False
 
@@ -59,24 +58,6 @@ class FabricParams:
 # TODO: replace global state with Gradio state
 class FabricState:
     batch_images = []
-
-
-def encode_to_latent(p, feedback_imgs):
-    w, h = p.width, p.height
-    zs = []
-    for image in feedback_imgs:
-        image = images.resize_image(1, image, w, h)
-        x = functional.pil_to_tensor(image)
-        x = functional.center_crop(x, (h, w))  # just to be safe
-        x = x.to(devices.device, dtype=devices.dtype_vae)
-        x = ((x / 255.0) * 2.0 - 1.0).unsqueeze(0)
-
-        # TODO: use caching to make this faster
-        with devices.autocast():
-            vae_output = p.sd_model.encode_first_stage(x)
-            z = p.sd_model.get_first_stage_encoding(vae_output)
-        zs.append(z.squeeze(0))
-    return zs
 
 
 class FabricScript(modules.scripts.Script):
@@ -273,14 +254,10 @@ class FabricScript(modules.scripts.Script):
             neg_scale=feedback_neg_scale,
             pos_images=likes,
             neg_images=dislikes,
-            pos_latents=None,
-            neg_latents=None,
         )
 
         if DEBUG or use_feedback(params):
             print("[FABRIC] Encoding feedback images into latent space...")
-            params.pos_latents = encode_to_latent(p, likes)
-            params.neg_latents = encode_to_latent(p, dislikes)
 
             print("[FABRIC] Patching U-Net forward pass...")
             unet = p.sd_model.model.diffusion_model

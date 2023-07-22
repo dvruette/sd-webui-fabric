@@ -1,9 +1,53 @@
 import torch
+import torchvision.transforms.functional as functional
+
+from modules import devices, images
 
 from ldm.modules.attention import BasicTransformerBlock
 
+
+def encode_to_latent(p, image, size):
+    w, h = size
+    image = images.resize_image(1, image, w, h)
+    x = functional.pil_to_tensor(image)
+    x = functional.center_crop(x, (h, w))  # just to be safe
+    x = x.to(devices.device, dtype=devices.dtype_vae)
+    x = ((x / 255.0) * 2.0 - 1.0).unsqueeze(0)
+
+    # TODO: use caching to make this faster
+    with devices.autocast():
+        vae_output = p.sd_model.encode_first_stage(x)
+        z = p.sd_model.get_first_stage_encoding(vae_output)
+    return z.squeeze(0)
+
+
+def get_latents_from_params(p, params, width, height):
+    w_latent, h_latent = width // 8, height // 8
+    # check if latents need to be computed or recomputed (if image size changed e.g. due to high-res fix)
+    if params.pos_latents is None:
+        pos_latents = [encode_to_latent(p, img, (width, height)) for img in params.liked_images]
+    else:
+        pos_latents = []
+        for latent in params.pos_latents:
+            if latent.shape[-2:] != (w_latent, h_latent):
+                latent = images.resize_image(1, latent, width, height)
+            pos_latents.append(latent)
+        params.pos_latents = pos_latents
+    # do the same for negative latents
+    if params.neg_latents is None:
+        neg_latents = [encode_to_latent(p, img, (width, height)) for img in params.disliked_images]
+    else:
+        neg_latents = []
+        for latent in params.neg_latents:
+            if latent.shape[-2:] != (w_latent, h_latent):
+                latent = images.resize_image(1, latent, width, height)
+            neg_latents.append(latent)
+        params.neg_latents = neg_latents
+    return pos_latents, neg_latents
+
+
 def patch_unet_forward_pass(p, unet, params):
-    if not params.pos_latents and not params.neg_latents:
+    if not params.liked_images and not params.disliked_images:
         return
 
     if not hasattr(unet, "_fabric_old_forward"):
@@ -19,9 +63,13 @@ def patch_unet_forward_pass(p, unet, params):
             if isinstance(module, BasicTransformerBlock):
                 module.attn1._fabric_old_forward = module.attn1.forward
 
+        w_latent, h_latent = x.shape[-2:]
+        w, h = 8 * w_latent, 8 * h_latent
+        pos_latents, neg_latents = get_latents_from_params(p, params, w, h)
+
         # add noise to reference latents
         all_zs = []
-        for latent in params.pos_latents + params.neg_latents:
+        for latent in pos_latents + neg_latents:
             z = p.sd_model.q_sample(latent.unsqueeze(0), torch.round(timesteps.float()).long())[0]
             all_zs.append(z)
         
@@ -56,8 +104,8 @@ def patch_unet_forward_pass(p, unet, params):
             cached_hs = cached_hiddens.pop(0)
 
             seq_len, d_model = x.shape[1:]
-            num_pos = len(params.pos_latents)
-            num_neg = len(params.neg_latents)
+            num_pos = len(pos_latents)
+            num_neg = len(neg_latents)
 
             pos_hs = cached_hs[:num_pos].view(1, num_pos * seq_len, d_model).expand(batch_size, -1, -1)  # (bs, seq * n_pos, dim)
             neg_hs = cached_hs[num_pos:].view(1, num_neg * seq_len, d_model).expand(batch_size, -1, -1)  # (bs, seq * n_neg, dim)
