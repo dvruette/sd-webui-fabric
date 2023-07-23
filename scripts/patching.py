@@ -2,14 +2,14 @@ import torch
 import torchvision.transforms.functional as functional
 
 from modules import devices, images
+from modules.processing import StableDiffusionProcessingTxt2Img
 
 from ldm.modules.attention import BasicTransformerBlock
 
 from scripts.marking import patch_process_sample, unmark_prompt_context
 
 
-def encode_to_latent(p, image, size):
-    w, h = size
+def encode_to_latent(p, image, w, h):
     image = images.resize_image(1, image, w, h)
     x = functional.pil_to_tensor(image)
     x = functional.center_crop(x, (h, w))  # just to be safe
@@ -24,27 +24,23 @@ def encode_to_latent(p, image, size):
 
 
 def get_latents_from_params(p, params, width, height):
+    w, h = (width // 8) * 8, (height // 8) * 8
     w_latent, h_latent = width // 8, height // 8
-    # check if latents need to be computed or recomputed (if image size changed e.g. due to high-res fix)
-    if params.pos_latents is None:
-        pos_latents = [encode_to_latent(p, img, (width, height)) for img in params.pos_images]
-    else:
-        pos_latents = []
-        for latent in params.pos_latents:
-            if latent.shape[-2:] != (w_latent, h_latent):
-                latent = images.resize_image(1, latent, width, height)
-            pos_latents.append(latent)
-        params.pos_latents = pos_latents
-    # do the same for negative latents
-    if params.neg_latents is None:
-        neg_latents = [encode_to_latent(p, img, (width, height)) for img in params.neg_images]
-    else:
-        neg_latents = []
-        for latent in params.neg_latents:
-            if latent.shape[-2:] != (w_latent, h_latent):
-                latent = images.resize_image(1, latent, width, height)
-            neg_latents.append(latent)
-        params.neg_latents = neg_latents
+    
+    def get_latents(images, cached_latents=None):
+        # check if latents need to be computed or recomputed (if image size changed e.g. due to high-res fix)
+        if cached_latents is None:
+            return [encode_to_latent(p, img, w, h) for img in images]
+        else:
+            ls = []
+            for latent, img in zip(cached_latents, images):
+                if latent.shape[-2:] != (w_latent, h_latent):
+                    latent = encode_to_latent(p, img, w, h)
+                ls.append(latent)
+            return ls
+    
+    pos_latents = get_latents(params.pos_images, params.pos_latents)
+    neg_latents = get_latents(params.neg_images, params.neg_latents)
     return pos_latents, neg_latents
 
 
@@ -57,6 +53,22 @@ def patch_unet_forward_pass(p, unet, params):
 
     null_ctx = p.sd_model.get_learned_conditioning([""])
 
+    width = (p.width // 8) * 8
+    height = (p.height // 8) * 8
+
+    has_hires_fix = isinstance(p, StableDiffusionProcessingTxt2Img) and getattr(p, 'enable_hr', False)
+    if has_hires_fix:
+        if p.hr_resize_x == 0 and p.hr_resize_y == 0:
+            hr_w = int(p.width * p.hr_scale)
+            hr_h = int(p.height * p.hr_scale)
+        else:
+            hr_w, hr_h = p.hr_resize_x, p.hr_resize_y
+        hr_w = (hr_w // 8) * 8
+        hr_h = (hr_h // 8) * 8
+    else:
+        hr_h = width
+        hr_w = height
+
     def new_forward(self, x, timesteps=None, context=None, **kwargs):
         _, uncond_ids, context = unmark_prompt_context(context)
         cond_ids = [i for i in range(context.size(0)) if i not in uncond_ids]
@@ -65,7 +77,7 @@ def patch_unet_forward_pass(p, unet, params):
 
         w_latent, h_latent = x.shape[-2:]
         w, h = 8 * w_latent, 8 * h_latent
-        if w != p.width or h != p.height:
+        if has_hires_fix and w == hr_w and h == hr_h:
             if not params.feedback_during_high_res_fix:
                 return self._fabric_old_forward(x, timesteps, context, **kwargs)
 
