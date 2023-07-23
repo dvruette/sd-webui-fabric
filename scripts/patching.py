@@ -1,7 +1,7 @@
 import torch
 import torchvision.transforms.functional as functional
 
-from modules import devices, images
+from modules import devices, images, shared
 from modules.processing import StableDiffusionProcessingTxt2Img
 
 from ldm.modules.attention import BasicTransformerBlock
@@ -101,6 +101,14 @@ def patch_unet_forward_pass(p, unet, params):
         for module in self.modules():
             if isinstance(module, BasicTransformerBlock):
                 module.attn1._fabric_old_forward = module.attn1.forward
+
+        # fix for medvram option
+        if shared.cmd_opts.medvram:
+            try:
+                # Trigger register_forward_pre_hook to move the model to correct device
+                p.sd_model.model()
+            except:
+                pass
 
         ## cache hidden states
 
