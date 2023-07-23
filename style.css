@@ -1,0 +1,4 @@
+
+#fabric_like_gallery img, #fabric_dislike_gallery img {
+    object-fit: scale-down;
+}

@@ -12,7 +12,7 @@ from scripts.marking import patch_process_sample, unmark_prompt_context
 def encode_to_latent(p, image, w, h):
     image = images.resize_image(1, image, w, h)
     x = functional.pil_to_tensor(image)
-    x = functional.center_crop(x, (h, w))  # just to be safe
+    x = functional.center_crop(x, (w, h))  # just to be safe
     x = x.to(devices.device, dtype=devices.dtype_vae)
     x = ((x / 255.0) * 2.0 - 1.0).unsqueeze(0)
 
@@ -35,17 +35,19 @@ def get_latents_from_params(p, params, width, height):
             ls = []
             for latent, img in zip(cached_latents, images):
                 if latent.shape[-2:] != (w_latent, h_latent):
+                    print(f"[FABRIC] Recomputing latent for image of size {img.size}")
                     latent = encode_to_latent(p, img, w, h)
                 ls.append(latent)
             return ls
     
-    pos_latents = get_latents(params.pos_images, params.pos_latents)
-    neg_latents = get_latents(params.neg_images, params.neg_latents)
-    return pos_latents, neg_latents
+    params.pos_latents = get_latents(params.pos_images, params.pos_latents)
+    params.neg_latents = get_latents(params.neg_images, params.neg_latents)
+    return params.pos_latents, params.neg_latents
 
 
 def patch_unet_forward_pass(p, unet, params):
     if not params.pos_images and not params.neg_images:
+        print("[FABRIC] No images to found, aborting patching")
         return
 
     if not hasattr(unet, "_fabric_old_forward"):

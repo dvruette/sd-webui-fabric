@@ -103,12 +103,12 @@ class FabricScript(modules.scripts.Script):
                     with gr.Row():
                         remove_selected_like_btn = gr.Button("Remove selected", interactive=False)
                         clear_liked_btn = gr.Button("Clear")
-                    like_gallery = gr.Gallery(label="Liked images", elem_id="fabric_like_gallery").style(columns=5, height=128)
+                    like_gallery = gr.Gallery(label="Liked images", elem_id="fabric_like_gallery").style(columns=4, height=128)
                 with gr.Tab("👎 Dislikes"):
                     with gr.Row():
                         remove_selected_dislike_btn = gr.Button("Remove selected", interactive=False)
                         clear_disliked_btn = gr.Button("Clear")
-                    dislike_gallery = gr.Gallery(label="Disliked images", elem_id="fabric_dislike_gallery").style(columns=5, height=128)
+                    dislike_gallery = gr.Gallery(label="Disliked images", elem_id="fabric_dislike_gallery").style(columns=4, height=128)
 
 
             with FormGroup():
@@ -263,11 +263,11 @@ class FabricScript(modules.scripts.Script):
         )
 
         if DEBUG or use_feedback(params):
-            print("[FABRIC] Encoding feedback images into latent space...")
-
             print("[FABRIC] Patching U-Net forward pass...")
             unet = p.sd_model.model.diffusion_model
             patch_unet_forward_pass(p, unet, params)
+        else:
+            print("[FABRIC] Skipping U-Net forward pass patching")
     
     def postprocess(self, p, processed, *args):
         print("[FABRIC] Restoring original U-Net forward pass")
