@@ -15,9 +15,14 @@ from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
-DEBUG = True
+DEBUG = False
+
+if DEBUG:
+    print(f"WARNING: Loading FABRIC v{__version__} in DEBUG mode")
+else:
+    print(f"Loading FABRIC v{__version__}")
 
 """
 # Gradio 3.32 bug fix
@@ -262,7 +267,7 @@ class FabricScript(modules.scripts.Script):
             feedback_during_high_res_fix=feedback_during_high_res_fix,
         )
 
-        if DEBUG or use_feedback(params):
+        if use_feedback(params) or (DEBUG and not feedback_disabled):
             print("[FABRIC] Patching U-Net forward pass...")
             unet = p.sd_model.model.diffusion_model
             patch_unet_forward_pass(p, unet, params)
