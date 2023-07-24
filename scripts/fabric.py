@@ -2,7 +2,7 @@ import os
 import dataclasses
 import functools
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 import gradio as gr
 from PIL import Image
@@ -17,7 +17,7 @@ from scripts.helpers import WebUiComponents
 
 __version__ = "0.3.5"
 
-DEBUG = os.getenv("DEBUG", False)
+DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
 if DEBUG:
     print(f"WARNING: Loading FABRIC v{__version__} in DEBUG mode")
@@ -45,6 +45,13 @@ def use_feedback(params):
     if len(params.pos_images) == 0 and len(params.neg_images) == 0:
         return False
     return True
+
+
+def pil_to_str(img):
+    if hasattr(img, "filename"):
+        return img.filename
+    else:
+        return f"{img.__class__.__name__}(size={img.size}, format={img.format})"
 
 @dataclass
 class FabricParams:
@@ -121,7 +128,6 @@ class FabricScript(modules.scripts.Script):
 
             with FormGroup():
                 with gr.Row():
-                    # TODO: figure out how to make the step size do what it's supposed to
                     feedback_max_images = gr.Slider(minimum=0, maximum=10, step=1, value=4, label="Max. feedback images")
 
                 with gr.Row():
@@ -252,8 +258,8 @@ class FabricScript(modules.scripts.Script):
             feedback_during_high_res_fix,
         ) = args
 
-        likes = liked_images[:int(feedback_max_images)]
-        dislikes = disliked_images[:int(feedback_max_images)]
+        likes = liked_images[-int(feedback_max_images):]
+        dislikes = disliked_images[-int(feedback_max_images):]
 
         params = FabricParams(
             enabled=(not feedback_disabled),
@@ -267,8 +273,18 @@ class FabricScript(modules.scripts.Script):
             feedback_during_high_res_fix=feedback_during_high_res_fix,
         )
 
+
         if use_feedback(params) or (DEBUG and not feedback_disabled):
             print("[FABRIC] Patching U-Net forward pass...")
+            
+            # log the generation params to be displayed/stored as metadata
+            log_params = asdict(params)
+            del log_params["enabled"]
+            log_params["pos_images"] = [pil_to_str(img) for img in log_params["pos_images"]]
+            log_params["neg_images"] = [pil_to_str(img) for img in log_params["neg_images"]]
+            log_params = {f"fabric/{k}": v for k, v in log_params.items()}
+            p.extra_generation_params.update(log_params)
+            
             unet = p.sd_model.model.diffusion_model
             patch_unet_forward_pass(p, unet, params)
         else:

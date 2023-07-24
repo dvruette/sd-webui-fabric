@@ -35,10 +35,11 @@ def patched_einsum_op_compvis(q, k, v, weights=None):
 
 
 def patched_xformers_attn(q, k, v, attn_bias=None, op=None, weights=None, orig_attn=None):
-    print(q.shape, v.shape, weights.shape)
+    bs, nq, nh, dh = q.shape  # batch_size, num_queries, num_heads, dim_per_head
     if weights is not None:
         min_val = torch.finfo(q.dtype).min
-        w_bias = weights.log().clamp(min=min_val)[None, None, None, :].expand(*q.shape[:3], -1).transpose(-2, -1)
+        w_bias = weights.log().clamp(min=min_val)[None, None, None, :].expand(bs, nh, nq, -1).contiguous()
+        w_bias = w_bias.to(dtype=q.dtype)
         if attn_bias is None:
             attn_bias = w_bias
         else:
@@ -63,10 +64,6 @@ def patched_sdp_attn(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, we
 # copied and adapted from modules.sd_hijack_optimizations.split_cross_attention_forward
 def weighted_split_cross_attention_forward(self, x, context=None, mask=None, weights=None):
     h = self.heads
-
-    # OURS: normalize weights to preserve attention magnitude
-    if weights is not None:
-        weights = weights[None, None, :] / weights.sum(dim=-1, keepdim=True)
 
     q_in = self.to_q(x)
     context = default(context, x)
@@ -112,12 +109,13 @@ def weighted_split_cross_attention_forward(self, x, context=None, mask=None, wei
             end = i + slice_size
             s1 = einsum('b i d, b j d -> b i j', q[:, i:end], k)
 
-            s2 = s1.softmax(dim=-1, dtype=q.dtype)
-            del s1
-
             # OURS: apply weights to attention
             if weights is not None:
-                s2 = s2 * weights
+                bias = weights.to(s1.dtype).log().clamp(min=torch.finfo(s1.dtype).min)
+                s1 = s1 + bias
+
+            s2 = s1.softmax(dim=-1, dtype=q.dtype)
+            del s1
 
             r1[:, i:end] = einsum('b i j, b j d -> b i d', s2, v)
             del s2
@@ -138,12 +136,9 @@ def is_the_same(fn1, fn2):
     return fn1.__name__ == fn2.__name__ and fn1.__module__ == fn2.__module__
 
 
-def weighted_attention(attn_fn, x, context=None, weights=None, **kwargs):
+def weighted_attention(self, attn_fn, x, context=None, weights=None, **kwargs):
     if weights is None:
         return attn_fn(x, context=context, **kwargs)
-    
-    print(attn_fn.__module__, attn_fn.__name__, type(attn_fn))
-    print(split_cross_attention_forward_invokeAI.__module__, split_cross_attention_forward_invokeAI.__name__, type(split_cross_attention_forward_invokeAI))
 
     if is_the_same(attn_fn, split_cross_attention_forward_invokeAI):
         modules.sd_hijack_optimizations.einsum_op_compvis = functools.partial(patched_einsum_op_compvis, weights=weights)
@@ -167,7 +162,7 @@ def weighted_attention(attn_fn, x, context=None, weights=None, **kwargs):
         return out
     
     elif is_the_same(attn_fn, split_cross_attention_forward):
-        return weighted_split_cross_attention_forward(x, context=context, weights=weights, **kwargs)
+        return weighted_split_cross_attention_forward(self, x, context=context, weights=weights, **kwargs)
     
     else:
         raise NotImplementedError(f"FABRIC does not support `{attn_fn.__module__}.{attn_fn.__name__}` yet. Please choose a supported attention function.")
