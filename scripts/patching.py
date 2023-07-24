@@ -7,6 +7,7 @@ from modules.processing import StableDiffusionProcessingTxt2Img
 from ldm.modules.attention import BasicTransformerBlock
 
 from scripts.marking import patch_process_sample, unmark_prompt_context
+from scripts.weighted_attention import weighted_attention
 
 
 def encode_to_latent(p, image, w, h):
@@ -45,6 +46,11 @@ def get_latents_from_params(p, params, width, height):
     return params.pos_latents, params.neg_latents
 
 
+def get_curr_feedback_weight(p, params):
+    w = params.max_weight
+    return w, w * params.neg_scale
+
+
 def patch_unet_forward_pass(p, unet, params):
     if not params.pos_images and not params.neg_images:
         print("[FABRIC] No images to found, aborting patching")
@@ -53,7 +59,7 @@ def patch_unet_forward_pass(p, unet, params):
     if not hasattr(unet, "_fabric_old_forward"):
         unet._fabric_old_forward = unet.forward
 
-    null_ctx = p.sd_model.get_learned_conditioning([""])
+    null_ctx = p.sd_model.get_learned_conditioning([""]).to(devices.device, dtype=devices.dtype_unet)
 
     width = (p.width // 8) * 8
     height = (p.height // 8) * 8
@@ -142,18 +148,24 @@ def patch_unet_forward_pass(p, unet, params):
             num_cond = len(cond_ids)
             num_uncond = len(uncond_ids)
 
+            pos_weight, neg_weight = get_curr_feedback_weight(p, params)
+
             outs = []
             if num_cond > 0:
                 pos_hs = cached_hs[:num_pos].view(1, num_pos * seq_len, d_model).expand(num_cond, -1, -1)  # (n_cond, seq * n_pos, dim)
                 x_cond = x[cond_ids]  # (n_cond, seq, dim)
                 ctx_cond = torch.cat([context[cond_ids], pos_hs], dim=1)  # (n_cond, seq * (1 + n_pos), dim)
-                out_cond = attn1._fabric_old_forward(x_cond, ctx_cond, **kwargs)  # (n_cond, seq, dim)
+                ws = torch.ones_like(ctx_cond[0, :, 0])  # (seq * (1 + n_pos),)
+                ws[x_cond.size(1):] = pos_weight
+                out_cond = weighted_attention(attn1._fabric_old_forward, x_cond, ctx_cond, ws, **kwargs)  # (n_cond, seq, dim)
                 outs.append(out_cond)
             if num_uncond > 0:
                 neg_hs = cached_hs[num_pos:].view(1, num_neg * seq_len, d_model).expand(num_uncond, -1, -1)  # (n_uncond, seq * n_neg, dim)
                 x_uncond = x[uncond_ids]  # (n_uncond, seq, dim)
                 ctx_uncond = torch.cat([context[uncond_ids], neg_hs], dim=1)  # (n_uncond, seq * (1 + n_neg), dim)
-                out_uncond = attn1._fabric_old_forward(x_uncond, ctx_uncond, **kwargs)  # (n_uncond, seq, dim)
+                ws = torch.ones_like(ctx_cond[0, :, 0])  # (seq * (1 + n_neg),)
+                ws[x_cond.size(1):] = neg_weight
+                out_uncond = weighted_attention(attn1._fabric_old_forward, x_uncond, ctx_uncond, **kwargs)  # (n_uncond, seq, dim)
                 outs.append(out_uncond)
             out = torch.cat(outs, dim=0)
             return out

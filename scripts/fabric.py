@@ -17,7 +17,7 @@ from scripts.helpers import WebUiComponents
 
 __version__ = "0.3.5"
 
-DEBUG = False
+DEBUG = os.getenv("DEBUG", False)
 
 if DEBUG:
     print(f"WARNING: Loading FABRIC v{__version__} in DEBUG mode")
