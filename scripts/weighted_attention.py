@@ -25,11 +25,9 @@ _einsum_op_compvis = modules.sd_hijack_optimizations.einsum_op_compvis
 
 
 def patched_einsum_op_compvis(q, k, v, weights=None):
-    print("Calling patched einsum_op_compvis")
     s = einsum('b i d, b j d -> b i j', q, k)
     s = s.softmax(dim=-1, dtype=s.dtype)
     if weights is not None:
-        print(s.shape, weights.shape)
         s = s * weights[None, None, :]
     return einsum('b i j, b j d -> b i d', s, v)
 

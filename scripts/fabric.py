@@ -275,7 +275,7 @@ class FabricScript(modules.scripts.Script):
 
 
         if use_feedback(params) or (DEBUG and not feedback_disabled):
-            print("[FABRIC] Patching U-Net forward pass...")
+            print(f"[FABRIC] Patching U-Net forward pass... ({len(likes)} likes, {len(dislikes)} dislikes)")
             
             # log the generation params to be displayed/stored as metadata
             log_params = asdict(params)

@@ -1,3 +1,5 @@
+import functools
+
 import torch
 import torchvision.transforms.functional as functional
 
@@ -63,6 +65,8 @@ def patch_unet_forward_pass(p, unet, params):
     if not hasattr(unet, "_fabric_old_forward"):
         unet._fabric_old_forward = unet.forward
 
+    batch_size = p.batch_size
+
     null_ctx = p.sd_model.get_learned_conditioning([""]).to(devices.device, dtype=devices.dtype_unet)
 
     width = (p.width // 8) * 8
@@ -127,36 +131,42 @@ def patch_unet_forward_pass(p, unet, params):
 
         ## cache hidden states
 
-        cached_hiddens = []
-        def patched_attn1_forward(attn1, x, **kwargs):
-            cached_hiddens.append(x.detach().clone())
+        cached_hiddens = {}
+        def patched_attn1_forward(attn1, idx, x, **kwargs):
+            if idx not in cached_hiddens:
+                cached_hiddens[idx] = x.detach().clone().cpu()
+            else:
+                cached_hiddens[idx] = torch.cat([cached_hiddens[idx], x.detach().clone().cpu()], dim=0)
             out = attn1._fabric_old_forward(x, **kwargs)
             return out
 
         # patch forward pass to cache hidden states
+        layer_idx = 0
         for module in self.modules():
             if isinstance(module, BasicTransformerBlock):
-                module.attn1.forward = patched_attn1_forward.__get__(module.attn1)
+                module.attn1.forward = functools.partial(patched_attn1_forward, module.attn1, layer_idx)
+                layer_idx += 1
 
         # run forward pass just to cache hidden states, output is discarded
-        all_zs = all_zs.to(x.device, dtype=self.dtype)
-        ts = timesteps[:1].expand(all_zs.size(0))  # (n_pos + n_neg,)
-        # use the null prompt for pre-computing hidden states on feedback images
-        ctx = null_ctx.expand(all_zs.size(0), -1, -1)  # (n_pos + n_neg, p_seq, p_dim)
-        _ = self._fabric_old_forward(all_zs, ts, ctx)
+        for i in range(0, len(all_zs), batch_size):
+            zs = all_zs[i : i + batch_size].to(x.device, dtype=self.dtype)
+            ts = timesteps[:1].expand(zs.size(0))  # (bs,)
+            # use the null prompt for pre-computing hidden states on feedback images
+            ctx = null_ctx.expand(zs.size(0), -1, -1)  # (bs, p_seq, p_dim)
+            _ = self._fabric_old_forward(zs, ts, ctx)
 
-        def patched_attn1_forward(attn1, x, context=None, **kwargs):
+        num_pos = len(pos_latents)
+        num_neg = len(neg_latents)
+        num_cond = len(cond_ids)
+        num_uncond = len(uncond_ids)
+
+        def patched_attn1_forward(attn1, idx, x, context=None, **kwargs):
             if context is None:
                 context = x
 
-            cached_hs = cached_hiddens.pop(0)
+            cached_hs = cached_hiddens[idx].to(x.device)
 
             seq_len, d_model = x.shape[1:]
-            num_pos = len(pos_latents)
-            num_neg = len(neg_latents)
-            num_cond = len(cond_ids)
-            num_uncond = len(uncond_ids)
-
 
             outs = []
             if num_cond > 0:
@@ -179,9 +189,11 @@ def patch_unet_forward_pass(p, unet, params):
             return out
 
         # patch forward pass to inject cached hidden states
+        layer_idx = 0
         for module in self.modules():
             if isinstance(module, BasicTransformerBlock):
-                module.attn1.forward = patched_attn1_forward.__get__(module.attn1)
+                module.attn1.forward = functools.partial(patched_attn1_forward, module.attn1, layer_idx)
+                layer_idx += 1
 
         # run forward pass with cached hidden states
         out = self._fabric_old_forward(x, timesteps, context, **kwargs)
