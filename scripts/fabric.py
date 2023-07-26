@@ -258,6 +258,9 @@ class FabricScript(modules.scripts.Script):
             feedback_during_high_res_fix,
         ) = args
 
+        # restore original U-Net forward pass in case previous batch errored out
+        unpatch_unet_forward_pass(p.sd_model.model.diffusion_model)
+
         likes = liked_images[-int(feedback_max_images):]
         dislikes = disliked_images[-int(feedback_max_images):]
 

@@ -19,7 +19,7 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 - SDXL is currently not supported (PRs welcome!)
 - Compatibility with other plugins is largely untested. If you experience errors with other plugins enabled, please disable all other plugins for the best chance for FABRIC to work. If you can figure out which plugin is incompatible, please open an issue.
 - The plugin is INCOMPATIBLE with `reference` mode in the ControlNet plugin. Instead of using a reference image, simply add it as a liked image. If you accidentally enable FABRIC and `reference` mode at the same time, you will have to restart the WebUI to fix it.
-- Some attention processors are not supported. In particular, `--opt-sub-quad-attention` and `--opt-split-attention-v1` are not supported at the moment.
+- Some attention processors are not supported. In particular, `--opt-sub-quad-attention` and `--opt-split-attention-v1` are not supported at the moment. Since FABRIC is quite VRAM intensive, using `--opt-split-attention` is recommended.
 
 
 

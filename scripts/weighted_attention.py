@@ -90,6 +90,11 @@ def weighted_split_cross_attention_forward(self, x, context=None, mask=None, wei
         tensor_size = q.shape[0] * q.shape[1] * k.shape[1] * q.element_size()
         modifier = 3 if q.element_size() == 2 else 2.5
         mem_required = tensor_size * modifier
+
+        # FABRIC some batch-size dependend overhead. Found empirically on RTX 3090.
+        bs = q.shape[0] / 8  # batch size
+        mem_required *= 1/(bs + 1) + 1.25
+        mem_required *= 1.05  # safety margin
         steps = 1
 
         if mem_required > mem_free_total:
@@ -111,6 +116,7 @@ def weighted_split_cross_attention_forward(self, x, context=None, mask=None, wei
             if weights is not None:
                 bias = weights.to(s1.dtype).log().clamp(min=torch.finfo(s1.dtype).min)
                 s1 = s1 + bias
+                del bias
 
             s2 = s1.softmax(dim=-1, dtype=q.dtype)
             del s1
