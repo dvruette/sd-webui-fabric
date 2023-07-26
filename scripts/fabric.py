@@ -10,12 +10,13 @@ from PIL import Image
 import modules.scripts
 from modules import script_callbacks
 from modules.ui_components import FormGroup
+from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
 
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
 
 
-__version__ = "0.4.1"
+__version__ = "0.4.2"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
@@ -70,7 +71,8 @@ class FabricParams:
 
 # TODO: replace global state with Gradio state
 class FabricState:
-    batch_images = []
+    txt2img_images = []
+    img2img_images = []
 
 
 class FabricScript(modules.scripts.Script):
@@ -84,7 +86,8 @@ class FabricScript(modules.scripts.Script):
         return modules.scripts.AlwaysVisible
     
     def ui(self, is_img2img):
-        self.selected_image = gr.State(None)
+        self.txt2img_selected_image = gr.State(None)
+        self.img2img_selected_image = gr.State(None)
         liked_images = gr.State([])
         disliked_images = gr.State([])
         selected_like = gr.State(None)
@@ -96,7 +99,11 @@ class FabricScript(modules.scripts.Script):
 
             with gr.Tabs():
                 with gr.Tab("Current batch"):
-                    self.selected_img_display = gr.Image(value=None, type="pil", label="Selected image").style(height=256)
+                    # TODO: figure out why the display is shared between tabs
+                    if is_img2img:
+                        self.img2img_selected_display = gr.Image(value=None, type="pil", label="Selected image").style(height=256)
+                    else:
+                        self.txt2img_selected_display = gr.Image(value=None, type="pil", label="Selected image").style(height=256)
 
                     with gr.Row():
                         like_btn_selected = gr.Button("👍 Like")
@@ -142,9 +149,14 @@ class FabricScript(modules.scripts.Script):
 
 
         WebUiComponents.on_txt2img_gallery(self.register_txt2img_gallery_select)
+        WebUiComponents.on_img2img_gallery(self.register_img2img_gallery_select)
 
-        like_btn_selected.click(self.add_image_to_state, inputs=[self.selected_image, liked_images], outputs=[liked_images, like_gallery])
-        dislike_btn_selected.click(self.add_image_to_state, inputs=[self.selected_image, disliked_images], outputs=[disliked_images, dislike_gallery])
+        if is_img2img:
+            like_btn_selected.click(self.add_image_to_state, inputs=[self.selected_img2img_image, liked_images], outputs=[liked_images, like_gallery])
+            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.selected_img2img_image, disliked_images], outputs=[disliked_images, dislike_gallery])
+        else:
+            like_btn_selected.click(self.add_image_to_state, inputs=[self.selected_txt2img_image, liked_images], outputs=[liked_images, like_gallery])
+            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.selected_txt2img_image, disliked_images], outputs=[disliked_images, dislike_gallery])
 
         like_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, liked_images], outputs=[liked_images, like_gallery])
         dislike_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, disliked_images], outputs=[disliked_images, dislike_gallery])
@@ -225,18 +237,39 @@ class FabricScript(modules.scripts.Script):
         return liked_images, liked_images
     
     def register_txt2img_gallery_select(self, gallery):
+        self.register_gallery_select(
+            gallery,
+            listener=self.on_txt2img_gallery_select,
+            selected=self.txt2img_selected_image,
+            display=self.txt2img_selected_display,
+        )
+
+    def register_img2img_gallery_select(self, gallery):
+        self.register_gallery_select(
+            gallery,
+            listener=self.on_img2img_gallery_select,
+            selected=self.img2img_selected_image,
+            display=self.img2img_selected_display,
+        )
+        
+    def register_gallery_select(self, gallery, listener=None, selected=None, display=None):
         gallery.select(
-            self.on_txt2img_gallery_select, 
+            listener, 
             _js="(a, b) => [a, selected_gallery_index()]",
             inputs=[
                 gallery,
                 gallery,  # can be any Gradio component (but not None), will be overwritten with selected gallery index
             ],
-            outputs=[self.selected_image, self.selected_img_display],
+            outputs=[selected, display],
         )
     
     def on_txt2img_gallery_select(self, gallery, selected_idx):
-        images = FabricState.batch_images
+        return self.on_gallery_select(gallery, selected_idx, FabricState.txt2img_images)
+        
+    def on_img2img_gallery_select(self, gallery, selected_idx):
+        return self.on_gallery_select(gallery, selected_idx, FabricState.img2img_images)
+        
+    def on_gallery_select(self, gallery, selected_idx, images):
         idx = selected_idx - (len(gallery) - len(images))
 
         if idx >= 0 and idx < len(images):
@@ -297,7 +330,13 @@ class FabricScript(modules.scripts.Script):
         print("[FABRIC] Restoring original U-Net forward pass")
         unpatch_unet_forward_pass(p.sd_model.model.diffusion_model)
 
-        FabricState.batch_images = processed.images[processed.index_of_first_image:]
+        images = processed.images[processed.index_of_first_image:]
+        if isinstance(p, StableDiffusionProcessingTxt2Img):
+            FabricState.txt2img_images = images
+        elif isinstance(p, StableDiffusionProcessingImg2Img):
+            FabricState.img2img_images = images
+        else:
+            raise RuntimeError(f"Unsupported processing type: {type(p)}")
 
 
 script_callbacks.on_after_component(WebUiComponents.register_component)
