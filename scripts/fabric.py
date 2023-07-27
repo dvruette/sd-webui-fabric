@@ -100,10 +100,8 @@ class FabricScript(modules.scripts.Script):
             with gr.Tabs():
                 with gr.Tab("Current batch"):
                     # TODO: figure out why the display is shared between tabs
-                    if is_img2img:
-                        self.img2img_selected_display = gr.Image(value=None, type="pil", label="Selected image").style(height=256)
-                    else:
-                        self.txt2img_selected_display = gr.Image(value=None, type="pil", label="Selected image").style(height=256)
+                    self.img2img_selected_display = gr.Image(value=None, type="pil", label="Selected image", visible=is_img2img).style(height=256)
+                    self.txt2img_selected_display = gr.Image(value=None, type="pil", label="Selected image", visible=not is_img2img).style(height=256)
 
                     with gr.Row():
                         like_btn_selected = gr.Button("👍 Like")
@@ -152,11 +150,11 @@ class FabricScript(modules.scripts.Script):
         WebUiComponents.on_img2img_gallery(self.register_img2img_gallery_select)
 
         if is_img2img:
-            like_btn_selected.click(self.add_image_to_state, inputs=[self.selected_img2img_image, liked_images], outputs=[liked_images, like_gallery])
-            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.selected_img2img_image, disliked_images], outputs=[disliked_images, dislike_gallery])
+            like_btn_selected.click(self.add_image_to_state, inputs=[self.img2img_selected_image, liked_images], outputs=[liked_images, like_gallery])
+            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.img2img_selected_image, disliked_images], outputs=[disliked_images, dislike_gallery])
         else:
-            like_btn_selected.click(self.add_image_to_state, inputs=[self.selected_txt2img_image, liked_images], outputs=[liked_images, like_gallery])
-            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.selected_txt2img_image, disliked_images], outputs=[disliked_images, dislike_gallery])
+            like_btn_selected.click(self.add_image_to_state, inputs=[self.txt2img_selected_image, liked_images], outputs=[liked_images, like_gallery])
+            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.txt2img_selected_image, disliked_images], outputs=[disliked_images, dislike_gallery])
 
         like_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, liked_images], outputs=[liked_images, like_gallery])
         dislike_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, disliked_images], outputs=[disliked_images, dislike_gallery])
