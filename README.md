@@ -13,9 +13,8 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 1. Open the "Extensions" tab
 2. Open the "Install from URL" tab
 3. Copy-paste `https://github.com/dvruette/sd-webui-fabric.git` into "URL for extension's git repository" and press "Install"
-5. Switch to the "Installed" tab and press "Apply and restart UI"
-
-Note: Since FABRIC is quite VRAM intensive, using `--opt-split-attention` is recommended.
+4. Switch to the "Installed" tab and press "Apply and restart UI"
+5. (optional) Since FABRIC is quite VRAM intensive, using `--opt-split-attention` is recommended.
 
 ### Compatibility Notes
 - SDXL is currently not supported (PRs welcome!)
