@@ -8,6 +8,10 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 
 ![demo](static/fabric_demo.gif)
 
+## Releases
+
+- [22.08.2023] v0.5.0: Adds support for presets; makes generated images using FABRIC more reproducible by loading the correct (previously used) feedback images when "sending to text2img/img2img".
+
 ## Installation
 
 1. Open the "Extensions" tab
