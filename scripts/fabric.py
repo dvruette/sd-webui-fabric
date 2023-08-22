@@ -1,6 +1,9 @@
 import os
 import dataclasses
 import functools
+import hashlib
+import json
+import traceback
 from pathlib import Path
 from dataclasses import dataclass, asdict
 
@@ -9,16 +12,20 @@ from PIL import Image
 
 import modules.scripts
 from modules import script_callbacks
-from modules.ui_components import FormGroup
+from modules.ui_common import create_refresh_button
+from modules.ui_components import FormGroup, ToolButton
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
 
-from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 from scripts.helpers import WebUiComponents
+from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 
 
 __version__ = "0.4.2"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
+
+OUTPUT_PATH = "log/fabric/images"
+PRESET_PATH = "log/fabric/presets"
 
 if DEBUG:
     print(f"WARNING: Loading FABRIC v{__version__} in DEBUG mode")
@@ -48,11 +55,71 @@ def use_feedback(params):
     return True
 
 
-def pil_to_str(img):
-    if hasattr(img, "filename"):
-        return img.filename
-    else:
-        return f"{img.__class__.__name__}(size={img.size}, format={img.format})"
+def image_hash(img, length=16):
+    hash_sha256 = hashlib.sha256()
+    hash_sha256.update(img.tobytes())
+    img_hash = hash_sha256.hexdigest()
+    if length and length > 0:
+        img_hash = img_hash[:length]
+    return img_hash
+
+
+def save_feedback_image(img, filename=None, base_path=OUTPUT_PATH):
+    if filename is None:
+        filename = image_hash(img) + ".png"
+    img_path = Path(modules.scripts.basedir(), base_path, filename)
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(img_path)
+    return filename
+
+
+@functools.lru_cache(maxsize=128)
+def load_feedback_image(filename, base_path=OUTPUT_PATH):
+    img_path = Path(modules.scripts.basedir(), base_path, filename)
+    return Image.open(img_path)
+
+
+def full_image_path(filename, base_path=OUTPUT_PATH):
+    img_path = Path(modules.scripts.basedir(), base_path, filename)
+    return str(img_path)
+
+
+# helper functions for loading saved params
+def _load_feedback_paths(d, key):
+    try:
+        paths = json.loads(d.get(key, "[]").replace("'", '"'))
+    except Exception as e:
+        traceback.print_exc()
+        print(d)
+        print(f"Failed to load feedback images: {d.get(key, '[]')}")
+        paths = []
+
+    paths = [path for path in paths if os.path.exists(full_image_path(path))]
+    return paths
+
+def _load_gallery(d, key):
+    paths = _load_feedback_paths(d, key)
+    return [full_image_path(path) for path in paths]
+
+
+def _save_preset(preset_name, liked_paths, disliked_paths, base_path=PRESET_PATH):
+    preset_path = Path(modules.scripts.basedir(), base_path, f"{preset_name}.json")
+    preset_path.parent.mkdir(parents=True, exist_ok=True)
+
+    preset = {
+        "liked_paths": liked_paths,
+        "disliked_paths": disliked_paths,
+    }
+
+    with open(preset_path, "w") as f:
+        json.dump(preset, f, indent=4)
+
+def _load_presets(base_path=PRESET_PATH):
+    presets_path = Path(modules.scripts.basedir(), base_path)
+    presets_path.mkdir(parents=True, exist_ok=True)
+    presets = [preset.stem for preset in presets_path.iterdir() if preset.is_file() and preset.suffix == ".json"]
+    return presets
+
 
 @dataclass
 class FabricParams:
@@ -88,14 +155,16 @@ class FabricScript(modules.scripts.Script):
     def ui(self, is_img2img):
         self.txt2img_selected_image = gr.State(None)
         self.img2img_selected_image = gr.State(None)
-        liked_images = gr.State([])
-        disliked_images = gr.State([])
         selected_like = gr.State(None)
         selected_dislike = gr.State(None)
+        # need to use JSON over State to make it compatible with gr.update
+        liked_paths = gr.JSON(value=[], visible=False)
+        disliked_paths = gr.JSON(value=[], visible=False)
 
         with gr.Accordion(f"{self.title()} v{__version__}", open=DEBUG, elem_id="fabric"):
-            if DEBUG:
-                like_example_btn = gr.Button("👍 Example")
+            with gr.Row():
+                presets_list = gr.Dropdown(label="Presets", choices=_load_presets(), default=None, live=False)
+                reload_presets_btn = create_refresh_button(presets_list, lambda: None, lambda: {"choices": _load_presets()}, "fabric_reload_presets_btn")
 
             with gr.Tabs():
                 with gr.Tab("Current batch"):
@@ -127,11 +196,17 @@ class FabricScript(modules.scripts.Script):
                         clear_disliked_btn = gr.Button("Clear")
                     dislike_gallery = gr.Gallery(label="Disliked images", elem_id="fabric_dislike_gallery").style(columns=4, height=128)
 
+            save_preset_btn = gr.Button("Save as preset")
+            
+            gr.HTML("<hr style='border-color: var(--block-border-color)'>")
+
 
             with FormGroup():
-                feedback_disabled = gr.Checkbox(label="Disable feedback", value=False)
+                gr.HTML("<h3>FABRIC Settings</h3>")
 
-            with FormGroup():
+                with gr.Row():
+                    feedback_disabled = gr.Checkbox(label="Disable feedback", value=False)
+
                 with gr.Row():
                     feedback_max_images = gr.Slider(minimum=0, maximum=10, step=1, value=4, label="Max. feedback images")
 
@@ -150,17 +225,17 @@ class FabricScript(modules.scripts.Script):
         WebUiComponents.on_img2img_gallery(self.register_img2img_gallery_select)
 
         if is_img2img:
-            like_btn_selected.click(self.add_image_to_state, inputs=[self.img2img_selected_image, liked_images], outputs=[liked_images, like_gallery])
-            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.img2img_selected_image, disliked_images], outputs=[disliked_images, dislike_gallery])
+            like_btn_selected.click(self.add_image_to_state, inputs=[self.img2img_selected_image, liked_paths], outputs=[like_gallery, liked_paths])
+            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.img2img_selected_image, disliked_paths], outputs=[dislike_gallery, disliked_paths])
         else:
-            like_btn_selected.click(self.add_image_to_state, inputs=[self.txt2img_selected_image, liked_images], outputs=[liked_images, like_gallery])
-            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.txt2img_selected_image, disliked_images], outputs=[disliked_images, dislike_gallery])
+            like_btn_selected.click(self.add_image_to_state, inputs=[self.txt2img_selected_image, liked_paths], outputs=[like_gallery, liked_paths])
+            dislike_btn_selected.click(self.add_image_to_state, inputs=[self.txt2img_selected_image, disliked_paths], outputs=[dislike_gallery, disliked_paths])
 
-        like_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, liked_images], outputs=[liked_images, like_gallery])
-        dislike_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, disliked_images], outputs=[disliked_images, dislike_gallery])
+        like_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, liked_paths], outputs=[like_gallery, liked_paths])
+        dislike_btn_uploaded.click(self.add_image_to_state, inputs=[upload_img_input, disliked_paths], outputs=[dislike_gallery, disliked_paths])
 
-        clear_liked_btn.click(lambda _: [[], []], inputs=liked_images, outputs=[liked_images, like_gallery])
-        clear_disliked_btn.click(lambda _: [[], []], inputs=disliked_images, outputs=[disliked_images, dislike_gallery])
+        clear_liked_btn.click(lambda _: ([], [], []), inputs=[], outputs=[like_gallery, liked_paths])
+        clear_disliked_btn.click(lambda _: ([], [], []), inputs=[], outputs=[dislike_gallery, disliked_paths])
 
         like_gallery.select(
             self.select_for_removal,
@@ -178,22 +253,52 @@ class FabricScript(modules.scripts.Script):
 
         remove_selected_like_btn.click(
             self.remove_selected,
-            inputs=[liked_images, selected_like],
-            outputs=[liked_images, like_gallery, selected_like, remove_selected_like_btn],
+            inputs=[liked_paths, selected_like],
+            outputs=[like_gallery, liked_paths, selected_like, remove_selected_like_btn],
         )
 
         remove_selected_dislike_btn.click(
             self.remove_selected,
-            inputs=[disliked_images, selected_dislike],
-            outputs=[disliked_images, dislike_gallery, selected_dislike, remove_selected_dislike_btn],
+            inputs=[disliked_paths, selected_dislike],
+            outputs=[dislike_gallery, disliked_paths, selected_dislike, remove_selected_dislike_btn],
         )
 
-        if DEBUG:
-            like_example_btn.click(functools.partial(self.on_like_example, example="example1"), inputs=liked_images, outputs=[liked_images, like_gallery])
+        save_preset_btn.click(
+            self.save_preset,
+            _js="(a, b, c, d) => [a, b, c, prompt('Enter a name for your preset:')]",
+            inputs=[presets_list, liked_paths, disliked_paths, disliked_paths],  # last input is a dummy
+            outputs=[presets_list],
+        )
+
+        presets_list.input(
+            self.on_preset_selected,
+            inputs=[presets_list, liked_paths, disliked_paths],
+            outputs=[
+                liked_paths,
+                disliked_paths,
+                like_gallery,
+                dislike_gallery,
+            ],
+        )
+
+        # sets FABRIC params when "send to txt2img/img2img" is clicked
+        self.infotext_fields = [
+            (feedback_disabled, lambda d: gr.Checkbox.update(value="fabric_start" not in d)),
+            (feedback_start, "fabric_start"),
+            (feedback_end, "fabric_end"),
+            (feedback_min_weight, "fabric_min_weight"),
+            (feedback_max_weight, "fabric_max_weight"),
+            (feedback_neg_scale, "fabric_neg_scale"),
+            (feedback_during_high_res_fix, "fabric_feedback_during_high_res_fix"),
+            (liked_paths, lambda d: gr.update(value=_load_feedback_paths(d, "fabric_pos_images")) if "fabric_pos_images" in d else None),
+            (disliked_paths, lambda d: gr.update(value=_load_feedback_paths(d, "fabric_neg_images")) if "fabric_neg_images" in d else None),
+            (like_gallery, lambda d: gr.Gallery.update(value=_load_gallery(d, "fabric_pos_images")) if "fabric_pos_images" in d else None),
+            (dislike_gallery, lambda d: gr.Gallery.update(value=_load_gallery(d, "fabric_neg_images")) if "fabric_neg_images" in d else None),
+        ]
 
         return [
-            liked_images,
-            disliked_images,
+            liked_paths,
+            disliked_paths,
             feedback_disabled,
             feedback_max_images,
             feedback_start,
@@ -211,28 +316,46 @@ class FabricScript(modules.scripts.Script):
             gr.update(interactive=True),
         ]
     
-    def remove_selected(self, images, idx):
-        if idx >= 0 and idx < len(images):
-            images.pop(idx)
+    def remove_selected(self, paths, idx):
+        if idx >= 0 and idx < len(paths):
+            paths.pop(idx)
+        gallery = [full_image_path(path) for path in paths]
 
         return [
-            images,
-            images,
+            gallery,
+            paths,
             gr.update(value=None),
             gr.update(interactive=False),
         ]
     
-    def add_image_to_state(self, img, images):
+    def add_image_to_state(self, img, paths):
         if img is not None:
-            images.append(img)
-        return images, images
-    
-    def on_like_example(self, liked_images, example="example1"):
-        img_path = Path(__file__).parent.parent.absolute() / "images" / f"{example}.png"
-        image = Image.open(img_path)
-        if image is not None:
-            liked_images.append(image)
-        return liked_images, liked_images
+            path = save_feedback_image(img)
+            paths.append(path)
+        gallery = [full_image_path(path) for path in paths]
+        return gallery, paths
+
+    def save_preset(self, presets, liked_paths, disliked_paths, preset_name):
+        if preset_name is not None and preset_name != "":
+            _save_preset(preset_name, liked_paths, disliked_paths)
+        return gr.update(choices=_load_presets())
+
+    def on_preset_selected(self, preset_name, liked_paths, disliked_paths):
+        preset_path = Path(modules.scripts.basedir(), PRESET_PATH, f"{preset_name}.json")
+        if preset_path.exists():
+            try:
+                with open(preset_path, "r") as f:
+                    preset = json.load(f)
+                assert "liked_paths" in preset, "Missing 'liked_paths' in preset"
+                assert "disliked_paths" in preset, "Missing 'disliked_paths' in preset"
+                liked_paths = preset["liked_paths"]
+                disliked_paths = preset["disliked_paths"]
+            except Exception as e:
+                traceback.print_exc()
+                print(f"Failed to load preset: {preset_path}")
+        like_gallery = [full_image_path(path) for path in liked_paths]
+        dislike_gallery = [full_image_path(path) for path in disliked_paths]
+        return liked_paths, disliked_paths, like_gallery, dislike_gallery
     
     def register_txt2img_gallery_select(self, gallery):
         self.register_gallery_select(
@@ -277,8 +400,8 @@ class FabricScript(modules.scripts.Script):
     
     def process(self, p, *args):
         (
-            liked_images,
-            disliked_images,
+            liked_paths,
+            disliked_paths,
             feedback_disabled,
             feedback_max_images,
             feedback_start, 
@@ -292,8 +415,11 @@ class FabricScript(modules.scripts.Script):
         # restore original U-Net forward pass in case previous batch errored out
         unpatch_unet_forward_pass(p.sd_model.model.diffusion_model)
 
-        likes = liked_images[-int(feedback_max_images):]
-        dislikes = disliked_images[-int(feedback_max_images):]
+        liked_paths = liked_paths[-int(feedback_max_images):]
+        disliked_paths = disliked_paths[-int(feedback_max_images):]
+
+        likes = [load_feedback_image(path) for path in liked_paths]
+        dislikes = [load_feedback_image(path) for path in disliked_paths]
 
         params = FabricParams(
             enabled=(not feedback_disabled),
@@ -313,10 +439,11 @@ class FabricScript(modules.scripts.Script):
             
             # log the generation params to be displayed/stored as metadata
             log_params = asdict(params)
+            log_params["pos_images"] = json.dumps(liked_paths)
+            log_params["neg_images"] = json.dumps(disliked_paths)
             del log_params["enabled"]
-            log_params["pos_images"] = [pil_to_str(img) for img in log_params["pos_images"]]
-            log_params["neg_images"] = [pil_to_str(img) for img in log_params["neg_images"]]
-            log_params = {f"fabric/{k}": v for k, v in log_params.items()}
+
+            log_params = {f"fabric_{k}": v for k, v in log_params.items()}
             p.extra_generation_params.update(log_params)
             
             unet = p.sd_model.model.diffusion_model
