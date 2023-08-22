@@ -20,7 +20,7 @@ from scripts.helpers import WebUiComponents
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 
 
-__version__ = "0.4.2"
+__version__ = "0.5.0"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
