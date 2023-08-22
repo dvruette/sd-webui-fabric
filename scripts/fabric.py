@@ -197,7 +197,8 @@ class FabricScript(modules.scripts.Script):
                     dislike_gallery = gr.Gallery(label="Disliked images", elem_id="fabric_dislike_gallery").style(columns=4, height=128)
 
             save_preset_btn = gr.Button("Save as preset")
-            
+
+
             gr.HTML("<hr style='border-color: var(--block-border-color)'>")
 
 
