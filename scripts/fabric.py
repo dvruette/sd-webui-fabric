@@ -12,7 +12,7 @@ from PIL import Image
 
 import modules.scripts
 from modules import script_callbacks
-from modules.ui_components import FormGroup, ToolButton
+from modules.ui_components import FormGroup, FormRow
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
 
 from scripts.helpers import WebUiComponents
@@ -27,7 +27,7 @@ except ImportError:
     from modules.ui import create_refresh_button
 
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
@@ -169,9 +169,14 @@ class FabricScript(modules.scripts.Script):
         disliked_paths = gr.JSON(value=[], visible=False)
 
         with gr.Accordion(f"{self.title()} v{__version__}", open=DEBUG, elem_id="fabric"):
+            with FormGroup():
+                with FormRow():
+                    feedback_enabled = gr.Checkbox(label="Enable", value=False)
+                    feedback_during_high_res_fix = gr.Checkbox(label="Enable during hires. fix", value=False)
+
             with gr.Row():
                 presets_list = gr.Dropdown(label="Presets", choices=_load_presets(), default=None, live=False)
-                reload_presets_btn = create_refresh_button(presets_list, lambda: None, lambda: {"choices": _load_presets()}, "fabric_reload_presets_btn")
+                create_refresh_button(presets_list, lambda: None, lambda: {"choices": _load_presets()}, "fabric_reload_presets_btn")
 
             with gr.Tabs():
                 with gr.Tab("Current batch"):
@@ -189,7 +194,6 @@ class FabricScript(modules.scripts.Script):
                     with gr.Row():
                         like_btn_uploaded = gr.Button("👍 Like")
                         dislike_btn_uploaded = gr.Button("👎 Dislike")
-            
 
             with gr.Tabs(initial_tab="👍 Likes"):
                 with gr.Tab("👍 Likes"):
@@ -197,6 +201,7 @@ class FabricScript(modules.scripts.Script):
                         remove_selected_like_btn = gr.Button("Remove selected", interactive=False)
                         clear_liked_btn = gr.Button("Clear")
                     like_gallery = gr.Gallery(label="Liked images", elem_id="fabric_like_gallery").style(columns=4, height=128)
+
                 with gr.Tab("👎 Dislikes"):
                     with gr.Row():
                         remove_selected_dislike_btn = gr.Button("Remove selected", interactive=False)
@@ -208,25 +213,18 @@ class FabricScript(modules.scripts.Script):
 
             gr.HTML("<hr style='border-color: var(--block-border-color)'>")
 
-
-            with FormGroup():
-                gr.HTML("<h3>FABRIC Settings</h3>")
-
-                with gr.Row():
-                    feedback_disabled = gr.Checkbox(label="Disable feedback", value=False)
-
-                with gr.Row():
+            with gr.Column():
+                with FormRow():
                     feedback_max_images = gr.Slider(minimum=0, maximum=10, step=1, value=4, label="Max. feedback images")
 
-                with gr.Row():
-                    feedback_start = gr.Slider(0.0, 1.0, value=0.0, label="Feedback start")
-                    feedback_end = gr.Slider(0.0, 1.0, value=0.8, label="Feedback end")
-                with gr.Row():
-                    feedback_min_weight = gr.Slider(0.0, 1.0, value=0.0, label="Min. weight")
-                    feedback_max_weight = gr.Slider(0.0, 1.0, value=0.8, label="Max. weight")
-                    feedback_neg_scale = gr.Slider(0.0, 1.0, value=0.5, label="Neg. scale")
-                with gr.Row():
-                    feedback_during_high_res_fix = gr.Checkbox(label="Enable feedback during hires. fix", value=False)
+                with FormRow():
+                    feedback_start = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label="Feedback start")
+                    feedback_end = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.8, label="Feedback end")
+
+                with FormRow():
+                    feedback_min_weight = gr.Slider(minimum=0, maximum=1, step=0.05, value=0.0, label="Min. weight")
+                    feedback_max_weight = gr.Slider(minimum=0.0, maximum=1.0, step=0.5, value=0.8, label="Max. weight")
+                    feedback_neg_scale = gr.Slider(minimum=0.0, maximum=1.0, step=0.05, value=0.5, label="Neg. scale")
 
 
         WebUiComponents.on_txt2img_gallery(self.register_txt2img_gallery_select)
@@ -291,7 +289,7 @@ class FabricScript(modules.scripts.Script):
 
         # sets FABRIC params when "send to txt2img/img2img" is clicked
         self.infotext_fields = [
-            (feedback_disabled, lambda d: gr.Checkbox.update(value="fabric_start" not in d)),
+            (feedback_enabled, lambda d: gr.Checkbox.update(value="fabric_start" in d)),
             (feedback_start, "fabric_start"),
             (feedback_end, "fabric_end"),
             (feedback_min_weight, "fabric_min_weight"),
@@ -307,7 +305,7 @@ class FabricScript(modules.scripts.Script):
         return [
             liked_paths,
             disliked_paths,
-            feedback_disabled,
+            feedback_enabled,
             feedback_max_images,
             feedback_start,
             feedback_end,
@@ -410,7 +408,7 @@ class FabricScript(modules.scripts.Script):
         (
             liked_paths,
             disliked_paths,
-            feedback_disabled,
+            feedback_enabled,
             feedback_max_images,
             feedback_start, 
             feedback_end, 
@@ -430,7 +428,7 @@ class FabricScript(modules.scripts.Script):
         dislikes = [load_feedback_image(path) for path in disliked_paths]
 
         params = FabricParams(
-            enabled=(not feedback_disabled),
+            enabled=feedback_enabled,
             start=feedback_start,
             end=feedback_end,
             min_weight=feedback_min_weight,
@@ -442,7 +440,7 @@ class FabricScript(modules.scripts.Script):
         )
 
 
-        if use_feedback(params) or (DEBUG and not feedback_disabled):
+        if use_feedback(params) or (DEBUG and feedback_enabled):
             print(f"[FABRIC] Patching U-Net forward pass... ({len(likes)} likes, {len(dislikes)} dislikes)")
             
             # log the generation params to be displayed/stored as metadata
