@@ -153,21 +153,27 @@ def weighted_attention(self, attn_fn, x, context=None, weights=None, **kwargs):
 
     if is_the_same(attn_fn, split_cross_attention_forward_invokeAI):
         modules.sd_hijack_optimizations.einsum_op_compvis = functools.partial(patched_einsum_op_compvis, weights=weights)
-        out = attn_fn(x, context=context, **kwargs)
-        modules.sd_hijack_optimizations.einsum_op_compvis = _einsum_op_compvis
+        try:
+            out = attn_fn(x, context=context, **kwargs)
+        finally:
+            modules.sd_hijack_optimizations.einsum_op_compvis = _einsum_op_compvis
         return out
     
     elif is_the_same(attn_fn, xformers_attention_forward):
         assert _xformers_attn in locals() or _xformers_attn in globals(), "xformers attention function not found"
         xformers.ops.memory_efficient_attention = functools.partial(patched_xformers_attn, weights=weights, orig_attn=_xformers_attn)
-        out = attn_fn(x, context=context, **kwargs)
-        xformers.ops.memory_efficient_attention = _xformers_attn
+        try:
+            out = attn_fn(x, context=context, **kwargs)
+        finally:
+            xformers.ops.memory_efficient_attention = _xformers_attn
         return out
     
     elif is_the_same(attn_fn, [scaled_dot_product_no_mem_attention_forward, scaled_dot_product_attention_forward]):
         torch.nn.functional.scaled_dot_product_attention = functools.partial(patched_sdp_attn, weights=weights, orig_attn=_sdp_attention)
-        out = attn_fn(x, context=context, **kwargs)
-        torch.nn.functional.scaled_dot_product_attention = _sdp_attention
+        try:
+            out = attn_fn(x, context=context, **kwargs)
+        finally:
+            torch.nn.functional.scaled_dot_product_attention = _sdp_attention
         return out
     
     elif is_the_same(attn_fn, split_cross_attention_forward):
