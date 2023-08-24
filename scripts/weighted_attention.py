@@ -21,7 +21,14 @@ from modules.sd_hijack_optimizations import (
 )
 
 
+try:
+    import xformers.ops
+    _xformers_attn = xformers.ops.memory_efficient_attention
+except ImportError:
+    pass
+
 _einsum_op_compvis = modules.sd_hijack_optimizations.einsum_op_compvis
+_sdp_attention = torch.nn.functional.scaled_dot_product_attention
 
 
 def patched_einsum_op_compvis(q, k, v, weights=None):
@@ -151,15 +158,13 @@ def weighted_attention(self, attn_fn, x, context=None, weights=None, **kwargs):
         return out
     
     elif is_the_same(attn_fn, xformers_attention_forward):
-        import xformers.ops  # xformers dependency is optional
-        _memory_efficient_attention = xformers.ops.memory_efficient_attention
-        xformers.ops.memory_efficient_attention = functools.partial(patched_xformers_attn, weights=weights, orig_attn=_memory_efficient_attention)
+        assert _xformers_attn in locals() or _xformers_attn in globals(), "xformers attention function not found"
+        xformers.ops.memory_efficient_attention = functools.partial(patched_xformers_attn, weights=weights, orig_attn=_xformers_attn)
         out = attn_fn(x, context=context, **kwargs)
-        xformers.ops.memory_efficient_attention = _memory_efficient_attention
+        xformers.ops.memory_efficient_attention = _xformers_attn
         return out
     
     elif is_the_same(attn_fn, [scaled_dot_product_no_mem_attention_forward, scaled_dot_product_attention_forward]):
-        _sdp_attention = torch.nn.functional.scaled_dot_product_attention
         torch.nn.functional.scaled_dot_product_attention = functools.partial(patched_sdp_attn, weights=weights, orig_attn=_sdp_attention)
         out = attn_fn(x, context=context, **kwargs)
         torch.nn.functional.scaled_dot_product_attention = _sdp_attention
