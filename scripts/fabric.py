@@ -12,12 +12,19 @@ from PIL import Image
 
 import modules.scripts
 from modules import script_callbacks
-from modules.ui_common import create_refresh_button
 from modules.ui_components import FormGroup, ToolButton
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
 
 from scripts.helpers import WebUiComponents
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
+
+# Compatibility with WebUI v1.3.0 and earlier versions
+try:
+    # WebUI v1.4.0+
+    from modules.ui_common import create_refresh_button
+except ImportError:
+    # Earlier versions
+    from modules.ui import create_refresh_button
 
 
 __version__ = "0.5.0"
