@@ -27,7 +27,7 @@ except ImportError:
     from modules.ui import create_refresh_button
 
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
@@ -420,6 +420,9 @@ class FabricScript(modules.scripts.Script):
 
         # restore original U-Net forward pass in case previous batch errored out
         unpatch_unet_forward_pass(p.sd_model.model.diffusion_model)
+
+        if not feedback_enabled:
+            return
 
         liked_paths = liked_paths[-int(feedback_max_images):]
         disliked_paths = disliked_paths[-int(feedback_max_images):]
