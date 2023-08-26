@@ -1,3 +1,16 @@
+import hashlib
+
+from PIL import Image
+
+
+def image_hash(img: Image.Image, length: int = 16):
+    hash_sha256 = hashlib.sha256()
+    hash_sha256.update(img.tobytes())
+    img_hash = hash_sha256.hexdigest()
+    if length and length > 0:
+        img_hash = img_hash[:length]
+    return img_hash
+
 
 class WebUiComponents:
     txt2img_gallery = None

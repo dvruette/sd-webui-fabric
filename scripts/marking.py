@@ -1,6 +1,7 @@
 import torch
 
 from modules.prompt_parser import MulticondLearnedConditioning, ComposableScheduledPromptConditioning, ScheduledPromptConditioning
+from modules.processing import StableDiffusionProcessing
 
 
 """
@@ -76,10 +77,14 @@ def unmark_prompt_context(x):
     mark_batch = mark[:, None, None, None].to(x.dtype).to(x.device)
     uc_indices = mark.detach().cpu().numpy().tolist()
     uc_indices = [i for i, item in enumerate(uc_indices) if item < 0.5]
+
+    StableDiffusionProcessing.cached_c = [None, None]
+    StableDiffusionProcessing.cached_uc = [None, None]
+
     return mark_batch, uc_indices, context
 
 
-def patch_process_sample(process):
+def apply_marking_patch(process):
     if getattr(process, 'sample_before_CN_hack', None) is None:
         process.sample_before_CN_hack = process.sample
     process.sample = process_sample.__get__(process)

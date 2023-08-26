@@ -8,7 +8,8 @@ from modules.processing import StableDiffusionProcessingTxt2Img
 
 from ldm.modules.attention import BasicTransformerBlock
 
-from scripts.marking import patch_process_sample, unmark_prompt_context
+from scripts.marking import apply_marking_patch, unmark_prompt_context
+from scripts.helpers import image_hash
 from scripts.weighted_attention import weighted_attention
 
 
@@ -33,18 +34,21 @@ def get_latents_from_params(p, params, width, height):
     def get_latents(images, cached_latents=None):
         # check if latents need to be computed or recomputed (if image size changed e.g. due to high-res fix)
         if cached_latents is None:
-            return [encode_to_latent(p, img, w, h) for img in images]
-        else:
-            ls = []
-            for latent, img in zip(cached_latents, images):
-                if latent.shape[-2:] != (w_latent, h_latent):
-                    print(f"[FABRIC] Recomputing latent for image of size {img.size}")
-                    latent = encode_to_latent(p, img, w, h)
-                ls.append(latent)
-            return ls
+            cached_latents = {}
+
+        latents = []
+        for img in images:
+            img_hash = image_hash(img)
+            if img_hash not in cached_latents:
+                cached_latents[img_hash] = encode_to_latent(p, img, w, h)
+            elif cached_latents[img_hash].shape[-2:] != (w_latent, h_latent):
+                print(f"[FABRIC] Recomputing latent for image of size {img.size}")
+                cached_latents[img_hash] = encode_to_latent(p, img, w, h)
+            latents.append(cached_latents[img_hash])
+        return latents, cached_latents
     
-    params.pos_latents = get_latents(params.pos_images, params.pos_latents)
-    params.neg_latents = get_latents(params.neg_images, params.neg_latents)
+    params.pos_latents, params.pos_latent_cache = get_latents(params.pos_images, params.pos_latent_cache)
+    params.neg_latents, params.neg_latent_cache = get_latents(params.neg_images, params.neg_latent_cache)
     return params.pos_latents, params.neg_latents
 
 
@@ -106,6 +110,15 @@ def patch_unet_forward_pass(p, unet, params):
         pos_latents = pos_latents if has_cond else []
         neg_latents = neg_latents if has_uncond else []
         all_latents = pos_latents + neg_latents
+
+        # Note: calls to the VAE with `--medvram` will move the U-Net to CPU, so we need to move it back to GPU
+        if shared.cmd_opts.medvram:
+            try:
+                # Trigger register_forward_pre_hook to move the model to correct device
+                p.sd_model.model()
+            except:
+                pass
+
         if len(all_latents) == 0:
             return self._fabric_old_forward(x, timesteps, context, **kwargs)
 
@@ -120,14 +133,6 @@ def patch_unet_forward_pass(p, unet, params):
         for module in self.modules():
             if isinstance(module, BasicTransformerBlock) and not hasattr(module.attn1, "_fabric_old_forward"):
                 module.attn1._fabric_old_forward = module.attn1.forward
-
-        # fix for medvram option
-        if shared.cmd_opts.medvram:
-            try:
-                # Trigger register_forward_pre_hook to move the model to correct device
-                p.sd_model.model()
-            except:
-                pass
 
         ## cache hidden states
 
@@ -208,7 +213,7 @@ def patch_unet_forward_pass(p, unet, params):
     
     unet.forward = new_forward.__get__(unet)
 
-    patch_process_sample(p)
+    apply_marking_patch(p)
 
 def unpatch_unet_forward_pass(unet):
     if hasattr(unet, "_fabric_old_forward"):

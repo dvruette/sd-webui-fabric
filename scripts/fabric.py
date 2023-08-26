@@ -1,11 +1,11 @@
 import os
 import dataclasses
 import functools
-import hashlib
 import json
 import traceback
 from pathlib import Path
 from dataclasses import dataclass, asdict
+from typing import Optional
 
 import gradio as gr
 from PIL import Image
@@ -15,7 +15,7 @@ from modules import script_callbacks
 from modules.ui_components import FormGroup, FormRow
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
 
-from scripts.helpers import WebUiComponents
+from scripts.helpers import WebUiComponents, image_hash
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 
 # Compatibility with WebUI v1.3.0 and earlier versions
@@ -27,7 +27,7 @@ except ImportError:
     from modules.ui import create_refresh_button
 
 
-__version__ = "0.5.2"
+__version__ = "0.5.3"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
@@ -60,15 +60,6 @@ def use_feedback(params):
     if len(params.pos_images) == 0 and len(params.neg_images) == 0:
         return False
     return True
-
-
-def image_hash(img, length=16):
-    hash_sha256 = hashlib.sha256()
-    hash_sha256.update(img.tobytes())
-    img_hash = hash_sha256.hexdigest()
-    if length and length > 0:
-        img_hash = img_hash[:length]
-    return img_hash
 
 
 def save_feedback_image(img, filename=None, base_path=OUTPUT_PATH):
@@ -138,8 +129,11 @@ class FabricParams:
     neg_scale: float = 0.5
     pos_images: list = dataclasses.field(default_factory=list)
     neg_images: list = dataclasses.field(default_factory=list)
-    pos_latents: list = None
-    neg_latents: list = None
+    pos_latents: Optional[list] = None
+    neg_latents: Optional[list] = None
+    pos_latent_cache: Optional[dict] = None
+    neg_latent_cache: Optional[dict] = None
+
     feedback_during_high_res_fix: bool = False
 
 
