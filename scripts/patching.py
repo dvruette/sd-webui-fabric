@@ -212,5 +212,6 @@ def patch_unet_forward_pass(p, unet, params):
 
 def unpatch_unet_forward_pass(unet):
     if hasattr(unet, "_fabric_old_forward"):
+        print("[FABRIC] Restoring original U-Net forward pass")
         unet.forward = unet._fabric_old_forward
         del unet._fabric_old_forward

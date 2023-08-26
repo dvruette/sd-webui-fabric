@@ -461,7 +461,6 @@ class FabricScript(modules.scripts.Script):
             print("[FABRIC] Skipping U-Net forward pass patching")
     
     def postprocess(self, p, processed, *args):
-        print("[FABRIC] Restoring original U-Net forward pass")
         unpatch_unet_forward_pass(p.sd_model.model.diffusion_model)
 
         images = processed.images[processed.index_of_first_image:]
