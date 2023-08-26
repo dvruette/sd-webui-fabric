@@ -118,7 +118,7 @@ def patch_unet_forward_pass(p, unet, params):
 
         # save original forward pass
         for module in self.modules():
-            if isinstance(module, BasicTransformerBlock):
+            if isinstance(module, BasicTransformerBlock) and not hasattr(module.attn1, "_fabric_old_forward"):
                 module.attn1._fabric_old_forward = module.attn1.forward
 
         # fix for medvram option
@@ -200,7 +200,7 @@ def patch_unet_forward_pass(p, unet, params):
 
         # restore original pass
         for module in self.modules():
-            if isinstance(module, BasicTransformerBlock):
+            if isinstance(module, BasicTransformerBlock) and hasattr(module.attn1, "_fabric_old_forward"):
                 module.attn1.forward = module.attn1._fabric_old_forward
                 del module.attn1._fabric_old_forward
 
