@@ -10,6 +10,7 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 
 ## Releases
 
+- [29.08.2023] 🏎️ v0.6.0: Up to 2x faster and 4x less memory usage thanks to [Token Merging](https://github.com/dbolya/tomesd/tree/main)(tested with 16 feedback images and a batch size of 4), moderate gains for fewer feedback images (10% speedup for 2 images, 30% for 8 images). Make sure to enable the Token Merging option to take advantage of this.
 - [22.08.2023] 🗃️ v0.5.0: Adds support for presets; makes generated images using FABRIC more reproducible by loading the correct (previously used) feedback images when using "send to text2img/img2img".
 
 ## Installation

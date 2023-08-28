@@ -11,6 +11,7 @@ from ldm.modules.attention import BasicTransformerBlock
 from scripts.marking import apply_marking_patch, unmark_prompt_context
 from scripts.helpers import image_hash
 from scripts.weighted_attention import weighted_attention
+from scripts.merging import compute_merge
 
 
 def encode_to_latent(p, image, w, h):
@@ -89,6 +90,14 @@ def patch_unet_forward_pass(p, unet, params):
         hr_w = width
         hr_h = height
 
+    tome_args = {
+        "enabled": params.tome_enabled,
+        "sx": 2, "sy": 2,
+        "use_rand": True,
+        "generator": None,
+        "seed": params.tome_seed,
+    }
+
     def new_forward(self, x, timesteps=None, context=None, **kwargs):
         _, uncond_ids, context = unmark_prompt_context(context)
         cond_ids = [i for i in range(context.size(0)) if i not in uncond_ids]
@@ -133,81 +142,101 @@ def patch_unet_forward_pass(p, unet, params):
         for module in self.modules():
             if isinstance(module, BasicTransformerBlock) and not hasattr(module.attn1, "_fabric_old_forward"):
                 module.attn1._fabric_old_forward = module.attn1.forward
+                module.attn2._fabric_old_forward = module.attn2.forward
 
-        ## cache hidden states
+        try:
+            ## cache hidden states
+            cached_hiddens = {}
+            def patched_attn1_forward(attn1, layer_idx, x, **kwargs):
+                merge, unmerge = compute_merge(x, args=tome_args, size=(h_latent, w_latent), ratio=params.tome_ratio)
+                x = merge(x)
+                if layer_idx not in cached_hiddens:
+                    cached_hiddens[layer_idx] = x.detach().clone().cpu()
+                else:
+                    cached_hiddens[layer_idx] = torch.cat([cached_hiddens[layer_idx], x.detach().clone().cpu()], dim=0)
+                out = attn1._fabric_old_forward(x, **kwargs)
+                out = unmerge(out)
+                return out
+            
+            def patched_attn2_forward(attn2, x, **kwargs):
+                merge, unmerge = compute_merge(x, args=tome_args, size=(h_latent, w_latent), ratio=params.tome_ratio)
+                x = merge(x)
+                out = attn2._fabric_old_forward(x, **kwargs)
+                out = unmerge(out)
+                return out
 
-        cached_hiddens = {}
-        def patched_attn1_forward(attn1, idx, x, **kwargs):
-            if idx not in cached_hiddens:
-                cached_hiddens[idx] = x.detach().clone().cpu()
-            else:
-                cached_hiddens[idx] = torch.cat([cached_hiddens[idx], x.detach().clone().cpu()], dim=0)
-            out = attn1._fabric_old_forward(x, **kwargs)
-            return out
+            # patch forward pass to cache hidden states
+            layer_idx = 0
+            for module in self.modules():
+                if isinstance(module, BasicTransformerBlock):
+                    module.attn1.forward = functools.partial(patched_attn1_forward, module.attn1, layer_idx)
+                    module.attn2.forward = functools.partial(patched_attn2_forward, module.attn2)
+                    layer_idx += 1
 
-        # patch forward pass to cache hidden states
-        layer_idx = 0
-        for module in self.modules():
-            if isinstance(module, BasicTransformerBlock):
-                module.attn1.forward = functools.partial(patched_attn1_forward, module.attn1, layer_idx)
-                layer_idx += 1
+            # run forward pass just to cache hidden states, output is discarded
+            for i in range(0, len(all_zs), batch_size):
+                zs = all_zs[i : i + batch_size].to(x.device, dtype=self.dtype)
+                ts = timesteps[:1].expand(zs.size(0))  # (bs,)
+                # use the null prompt for pre-computing hidden states on feedback images
+                ctx = null_ctx.expand(zs.size(0), -1, -1)  # (bs, p_seq, p_dim)
+                _ = self._fabric_old_forward(zs, ts, ctx)
 
-        # run forward pass just to cache hidden states, output is discarded
-        for i in range(0, len(all_zs), batch_size):
-            zs = all_zs[i : i + batch_size].to(x.device, dtype=self.dtype)
-            ts = timesteps[:1].expand(zs.size(0))  # (bs,)
-            # use the null prompt for pre-computing hidden states on feedback images
-            ctx = null_ctx.expand(zs.size(0), -1, -1)  # (bs, p_seq, p_dim)
-            _ = self._fabric_old_forward(zs, ts, ctx)
+            num_pos = len(pos_latents)
+            num_neg = len(neg_latents)
+            num_cond = len(cond_ids)
+            num_uncond = len(uncond_ids)
+            tome_h_latent = h_latent * (1 - params.tome_ratio)
 
-        num_pos = len(pos_latents)
-        num_neg = len(neg_latents)
-        num_cond = len(cond_ids)
-        num_uncond = len(uncond_ids)
+            def patched_attn1_forward(attn1, idx, x, context=None, **kwargs):
+                if context is None:
+                    context = x
 
-        def patched_attn1_forward(attn1, idx, x, context=None, **kwargs):
-            if context is None:
-                context = x
+                cached_hs = cached_hiddens[idx].to(x.device)
 
-            cached_hs = cached_hiddens[idx].to(x.device)
+                d_model = x.shape[-1]
 
-            seq_len, d_model = x.shape[1:]
+                def attention_with_feedback(_x, context, feedback_hs, w):
+                    num_xs, num_fb = _x.shape[0], feedback_hs.shape[0]
+                    if num_fb > 0:
+                        feedback_ctx = feedback_hs.view(1, -1, d_model).expand(num_xs, -1, -1)  # (n_cond, seq * n_pos, dim)
+                        merge, _ = compute_merge(feedback_ctx, args=tome_args, size=(tome_h_latent * num_fb, w_latent), max_tokens=params.tome_max_tokens)
+                        feedback_ctx = merge(feedback_ctx)
+                        ctx = torch.cat([context, feedback_ctx], dim=1)  # (n_cond, seq + seq*n_pos, dim)
+                    else:
+                        ctx = context
+                    weights = torch.ones_like(ctx[0, :, 0])  # (seq + seq*n_pos,)
+                    weights[_x.shape[1]:] = w
+                    return weighted_attention(attn1, attn1._fabric_old_forward, _x, ctx, weights, **kwargs)  # (n_cond, seq, dim)
 
-            outs = []
-            if num_cond > 0:
-                pos_hs = cached_hs[:num_pos].view(1, num_pos * seq_len, d_model).expand(num_cond, -1, -1)  # (n_cond, seq * n_pos, dim)
-                x_cond = x[cond_ids]  # (n_cond, seq, dim)
-                ctx_cond = torch.cat([context[cond_ids], pos_hs], dim=1)  # (n_cond, seq * (1 + n_pos), dim)
-                ws = torch.ones_like(ctx_cond[0, :, 0])  # (seq * (1 + n_pos),)
-                ws[x_cond.size(1):] = pos_weight
-                out_cond = weighted_attention(attn1, attn1._fabric_old_forward, x_cond, ctx_cond, ws, **kwargs)  # (n_cond, seq, dim)
-                outs.append(out_cond)
-            if num_uncond > 0:
-                neg_hs = cached_hs[num_pos:].view(1, num_neg * seq_len, d_model).expand(num_uncond, -1, -1)  # (n_uncond, seq * n_neg, dim)
-                x_uncond = x[uncond_ids]  # (n_uncond, seq, dim)
-                ctx_uncond = torch.cat([context[uncond_ids], neg_hs], dim=1)  # (n_uncond, seq * (1 + n_neg), dim)
-                ws = torch.ones_like(ctx_uncond[0, :, 0])  # (seq * (1 + n_neg),)
-                ws[x_uncond.size(1):] = neg_weight
-                out_uncond = weighted_attention(attn1, attn1._fabric_old_forward, x_uncond, ctx_uncond, ws, **kwargs)  # (n_uncond, seq, dim)
-                outs.append(out_uncond)
-            out = torch.cat(outs, dim=0)
-            return out
+                outs = []
+                if num_cond > 0:
+                    out_cond = attention_with_feedback(x[cond_ids], context[cond_ids], cached_hs[:num_pos], pos_weight)  # (n_cond, seq, dim)
+                    outs.append(out_cond)
+                if num_uncond > 0:
+                    out_uncond = attention_with_feedback(x[uncond_ids], context[uncond_ids], cached_hs[num_pos:], neg_weight)  # (n_cond, seq, dim)
+                    outs.append(out_uncond)
+                out = torch.cat(outs, dim=0)
+                return out
 
-        # patch forward pass to inject cached hidden states
-        layer_idx = 0
-        for module in self.modules():
-            if isinstance(module, BasicTransformerBlock):
-                module.attn1.forward = functools.partial(patched_attn1_forward, module.attn1, layer_idx)
-                layer_idx += 1
+            # patch forward pass to inject cached hidden states
+            layer_idx = 0
+            for module in self.modules():
+                if isinstance(module, BasicTransformerBlock):
+                    module.attn1.forward = functools.partial(patched_attn1_forward, module.attn1, layer_idx)
+                    layer_idx += 1
 
-        # run forward pass with cached hidden states
-        out = self._fabric_old_forward(x, timesteps, context, **kwargs)
+            # run forward pass with cached hidden states
+            out = self._fabric_old_forward(x, timesteps, context, **kwargs)
 
-        # restore original pass
-        for module in self.modules():
-            if isinstance(module, BasicTransformerBlock) and hasattr(module.attn1, "_fabric_old_forward"):
-                module.attn1.forward = module.attn1._fabric_old_forward
-                del module.attn1._fabric_old_forward
+        finally:
+            # restore original pass
+            for module in self.modules():
+                if isinstance(module, BasicTransformerBlock) and hasattr(module.attn1, "_fabric_old_forward"):
+                    module.attn1.forward = module.attn1._fabric_old_forward
+                    del module.attn1._fabric_old_forward
+                if isinstance(module, BasicTransformerBlock) and hasattr(module.attn2, "_fabric_old_forward"):
+                    module.attn2.forward = module.attn2._fabric_old_forward
+                    del module.attn2._fabric_old_forward
 
         return out
     

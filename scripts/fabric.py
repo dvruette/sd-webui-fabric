@@ -13,7 +13,7 @@ from PIL import Image
 import modules.scripts
 from modules import script_callbacks
 from modules.ui_components import FormGroup, FormRow
-from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img
+from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img, get_fixed_seed
 
 from scripts.helpers import WebUiComponents, image_hash
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
@@ -27,7 +27,7 @@ except ImportError:
     from modules.ui import create_refresh_button
 
 
-__version__ = "0.5.3"
+__version__ = "0.6.0"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
@@ -135,6 +135,10 @@ class FabricParams:
     neg_latent_cache: Optional[dict] = None
 
     feedback_during_high_res_fix: bool = False
+    tome_enabled: bool = False
+    tome_ratio: float = 0.5
+    tome_max_tokens: int = 4*4096
+    tome_seed: int = -1
 
 
 # TODO: replace global state with Gradio state
@@ -209,16 +213,23 @@ class FabricScript(modules.scripts.Script):
 
             with gr.Column():
                 with FormRow():
-                    feedback_max_images = gr.Slider(minimum=0, maximum=10, step=1, value=4, label="Max. feedback images")
-
-                with FormRow():
                     feedback_start = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.0, label="Feedback start")
                     feedback_end = gr.Slider(minimum=0.0, maximum=1.0, step=0.01, value=0.8, label="Feedback end")
-
                 with FormRow():
-                    feedback_min_weight = gr.Slider(minimum=0, maximum=1, step=0.05, value=0.0, label="Min. weight")
-                    feedback_max_weight = gr.Slider(minimum=0.0, maximum=1.0, step=0.5, value=0.8, label="Max. weight")
-                    feedback_neg_scale = gr.Slider(minimum=0.0, maximum=1.0, step=0.05, value=0.5, label="Neg. scale")
+                    feedback_max_weight = gr.Slider(minimum=0.0, maximum=1.0, step=0.05, value=0.8, label="Feedback Strength", elem_id="fabric_max_weight")
+                with FormRow():
+                    tome_enabled = gr.Checkbox(label="Enable Token Merging (faster, less VRAM, less accurate)", value=False)
+
+            with gr.Accordion("Advanced options", open=DEBUG):
+                with FormGroup():
+                    feedback_min_weight = gr.Slider(minimum=0, maximum=1, step=0.05, value=0.0, label="Min. strength", info="Minimum feedback strength at every diffusion step.", elem_id="fabric_min_weight")
+                    feedback_neg_scale = gr.Slider(minimum=0.0, maximum=1.0, step=0.05, value=0.5, label="Negative weight", info="Strength of negative feedback relative to positive feedback.", elem_id="fabric_neg_scale")
+                
+                with FormGroup():
+                    tome_ratio = gr.Slider(minimum=0.0, maximum=0.75, step=0.125, value=0.5, label="ToMe merge ratio", info="Percentage of tokens to be merged (higher improves speed)", elem_id="fabric_tome_ratio")
+                    tome_max_tokens = gr.Slider(minimum=4096, maximum=16*4096, step=4096, value=2*4096, label="ToMe max. tokens", info="Maximum number of tokens after merging (lower improves VRAM usage)", elem_id="fabric_tome_max_tokens")
+                    tome_seed = gr.Number(label="ToMe seed", value=-1, info="Random seed for ToMe partition", elem_id="fabric_tome_seed")
+
 
 
         WebUiComponents.on_txt2img_gallery(self.register_txt2img_gallery_select)
@@ -289,6 +300,10 @@ class FabricScript(modules.scripts.Script):
             (feedback_min_weight, "fabric_min_weight"),
             (feedback_max_weight, "fabric_max_weight"),
             (feedback_neg_scale, "fabric_neg_scale"),
+            (tome_enabled, "fabric_tome_enabled"),
+            (tome_ratio, "fabric_tome_ratio"),
+            (tome_max_tokens, "fabric_tome_max_tokens"),
+            (tome_seed, "fabric_tome_seed"),
             (feedback_during_high_res_fix, "fabric_feedback_during_high_res_fix"),
             (liked_paths, lambda d: gr.update(value=_load_feedback_paths(d, "fabric_pos_images")) if "fabric_pos_images" in d else None),
             (disliked_paths, lambda d: gr.update(value=_load_feedback_paths(d, "fabric_neg_images")) if "fabric_neg_images" in d else None),
@@ -300,13 +315,16 @@ class FabricScript(modules.scripts.Script):
             liked_paths,
             disliked_paths,
             feedback_enabled,
-            feedback_max_images,
             feedback_start,
             feedback_end,
             feedback_min_weight,
             feedback_max_weight,
             feedback_neg_scale,
             feedback_during_high_res_fix,
+            tome_enabled,
+            tome_ratio,
+            tome_max_tokens,
+            tome_seed,
         ]
     
 
@@ -403,13 +421,16 @@ class FabricScript(modules.scripts.Script):
             liked_paths,
             disliked_paths,
             feedback_enabled,
-            feedback_max_images,
             feedback_start, 
             feedback_end, 
             feedback_min_weight, 
             feedback_max_weight, 
             feedback_neg_scale,
             feedback_during_high_res_fix,
+            tome_enabled,
+            tome_ratio,
+            tome_max_tokens,
+            tome_seed,
         ) = args
 
         # restore original U-Net forward pass in case previous batch errored out
@@ -417,9 +438,6 @@ class FabricScript(modules.scripts.Script):
 
         if not feedback_enabled:
             return
-
-        liked_paths = liked_paths[-int(feedback_max_images):]
-        disliked_paths = disliked_paths[-int(feedback_max_images):]
 
         likes = [load_feedback_image(path) for path in liked_paths]
         dislikes = [load_feedback_image(path) for path in disliked_paths]
@@ -434,6 +452,10 @@ class FabricScript(modules.scripts.Script):
             pos_images=likes,
             neg_images=dislikes,
             feedback_during_high_res_fix=feedback_during_high_res_fix,
+            tome_enabled=tome_enabled,
+            tome_ratio=(round(tome_ratio * 16) / 16),
+            tome_max_tokens=tome_max_tokens,
+            tome_seed=get_fixed_seed(tome_seed),
         )
 
 
