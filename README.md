@@ -1,17 +1,19 @@
 # FABRIC Plugin for Stable Diffusion WebUI
 
-Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Expect bugs and rough edges and feel free to contribute if you know how fix them.
+Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Steer the model towards generating desirable results by simply liking/disliking images. These feedback images can be generated or provided by you and will make the model generate images that look more/less like the feedback. Instead of meticulously iterating on your prompt until you get what you're looking for, with FABRIC you can simply "show" the model what you want and don't want.
 
 📜 Paper: https://arxiv.org/abs/2307.10159
 
 🎨 Project page: https://sd-fabric.github.io
+
+ComfyUI node (by [@ssitu](https://github.com/ssitu)): https://github.com/ssitu/ComfyUI_fabric
 
 ![demo](static/fabric_demo.gif)
 
 ## Releases
 
 - [29.08.2023] 🏎️ v0.6.0: Up to 2x faster and 4x less VRAM usage thanks to [Token Merging](https://github.com/dbolya/tomesd/tree/main) (tested with 16 feedback images and a batch size of 4), moderate gains for fewer feedback images (10% speedup for 2 images, 30% for 8 images). Enable the Token Merging option to take advantage of this.
-- [22.08.2023] 🗃️ v0.5.0: Adds support for presets; makes generated images using FABRIC more reproducible by loading the correct (previously used) feedback images when using "send to text2img/img2img".
+- [22.08.2023] 🗃️ v0.5.0: Adds support for presets. Makes generated images using FABRIC more reproducible by loading the correct (previously used) feedback images when using "send to text2img/img2img".
 
 ## Installation
 
@@ -19,7 +21,8 @@ Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://git
 2. Open the "Install from URL" tab
 3. Copy-paste `https://github.com/dvruette/sd-webui-fabric.git` into "URL for extension's git repository" and press "Install"
 4. Switch to the "Installed" tab and press "Apply and restart UI"
-5. (optional) Since FABRIC is quite VRAM intensive, using `--opt-split-attention` is recommended.
+5. (optional) Since FABRIC is quite VRAM intensive, using `--xformers` is recommended.
+   1. If you still run out of VRAM, try enabling the "Token Merging" setting for even better memory efficiency.
 
 ### Compatibility Notes
 - SDXL is currently not supported (PRs welcome!)
