@@ -1,6 +1,6 @@
 # FABRIC Plugin for Stable Diffusion WebUI
 
-Alpha version of a plugin for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Steer the model towards generating desirable results by simply liking/disliking images. These feedback images can be generated or provided by you and will make the model generate images that look more/less like the feedback. Instead of meticulously iterating on your prompt until you get what you're looking for, with FABRIC you can simply "show" the model what you want and don't want.
+Official FABRIC implementation for [automatic1111/stable-diffusion-webui](https://github.com/AUTOMATIC1111/stable-diffusion-webui). Steer the model towards generating desirable results by simply liking/disliking images. These feedback images can be generated or provided by you and will make the model generate images that look more/less like the feedback. Instead of meticulously iterating on your prompt until you get what you're looking for, with FABRIC you can simply "show" the model what you want and don't want.
 
 📜 Paper: https://arxiv.org/abs/2307.10159
 
