@@ -9,7 +9,7 @@ from modules.processing import StableDiffusionProcessingTxt2Img
 from ldm.modules.attention import BasicTransformerBlock
 
 from scripts.marking import apply_marking_patch, unmark_prompt_context
-from scripts.helpers import image_hash
+from scripts.fabric_utils import image_hash
 from scripts.weighted_attention import weighted_attention
 from scripts.merging import compute_merge
 

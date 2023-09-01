@@ -15,7 +15,7 @@ from modules import script_callbacks
 from modules.ui_components import FormGroup, FormRow
 from modules.processing import StableDiffusionProcessingTxt2Img, StableDiffusionProcessingImg2Img, get_fixed_seed
 
-from scripts.helpers import WebUiComponents, image_hash
+from scripts.fabric_utils import WebUiComponents, image_hash
 from scripts.patching import patch_unet_forward_pass, unpatch_unet_forward_pass
 
 # Compatibility with WebUI v1.3.0 and earlier versions
@@ -27,7 +27,7 @@ except ImportError:
     from modules.ui import create_refresh_button
 
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
