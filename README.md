@@ -74,7 +74,7 @@ Generating images in a certain style, adding them as feedback and dropping the s
 Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality`; Seed: `1531668169`
 
 #### Feedback Strength
-Feedback strength controls how much the model pays attention to the feedback. This example demonstrates the effect of using different feedback strengths:
+Feedback strength controls how much the model pays attention to the feedback. This example demonstrates the effect of varying it:
 
 | Feedback image | | | |
 | --- | --- | --- | --- |
@@ -82,8 +82,7 @@ Feedback strength controls how much the model pays attention to the feedback. Th
 | weight=0.0 | weight=0.2 | weight=0.4 | weight=0.8 |
 | ![a new york pineapple](static/example_3_00.png) | ![a new york pineapple](static/example_3_02.png) | ![a new york pineapple](static/example_3_04.png) | ![a new york pineapple](static/example_3_08.png) |
 
-Prompt: `[macro picture of a pineapple, zoomcore:photo of new york at sunrise:0.3], masterpiece, trending on artstation[:, extremely detailed, hyperrealistic, 8k:0.5]`; Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality, grayscale`; Seed: `2345285974`;
-
+Prompt: `[macro picture of a pineapple, zoomcore:photo of new york at sunrise:0.3], masterpiece, trending on artstation[:, extremely detailed, hyperrealistic, 8k:0.5]`; Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality, grayscale`; Seed: `2345285976`;
 
 
 #### Feedback Schedule
@@ -96,18 +95,22 @@ By adjusting the feedback schedule, it's possible to control which features are 
 Prompt: `a woman with long flowy hair wearing a (dress made of pink flowers:1.1) sitting on a sunny meadow, vibrant`; Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality, grayscale, muted colors, monochrome, sepia`; Seed: `2844331335`
 
 
-### Advanced Usage
+_All examples were created using the DreamShaper 7 model (https://huggingface.co/Lykon/DreamShaper/tree/main)._
 
-#### Min. strength
-Adjusting the minimum feedback strength controls how much feedback is incorporated during the passive phase, outside of the feedback schedule (i.e. when FABRIC is "inactive", before `feedback start` and after `feedback end`). This allows emphasizing the feedback during certain phases (feature scales) of the generation but still incorporating at least some of it from beginning to end. By default this is 0, so feedback is only incorporated during the active phase.
+<details>
+   <summary><h3>Advanced Usage</h3></summary>
 
-#### Negative weight
-The negative weight controls how much negative feedback is incorporated relative the the positive feedback. We have found that it's generally preferrable to have lower feedback strenth for negative images, which is why by default this value is `0.5`. Increasing this increases the influence of negative feedback (without changin the influence of positive feedback).
-
-#### ToMe settings
-These settings are quite technical and understanding them is not strictly necessary for using them. Merge ratio controls the ratio of tokens that get merged: higher merge ratio -> fewer tokens -> more speed and less memory, but lower quality. Max. tokens limits the number of feedback tokens: fewer tokens -> more speed, less memory, but lower quality. The seed controls which tokens have a chance of being merged and is mainly there for reproducibility purposes. Changing the seed can alter the outcome quite significantly depending on how aggressive the other ToMe settings are.
-
-More information on ToMe: https://github.com/dbolya/tomesd/tree/main
+   #### Min. strength
+   Adjusting the minimum feedback strength controls how much feedback is incorporated during the passive phase, outside of the feedback schedule (i.e. when FABRIC is "inactive", before `feedback start` and after `feedback end`). This allows emphasizing the feedback during certain phases (feature scales) of the generation but still incorporating at least some of it from beginning to end. By default this is 0, so feedback is only incorporated during the active phase.
+   
+   #### Negative weight
+   The negative weight controls how much negative feedback is incorporated relative the the positive feedback. We have found that it's generally preferrable to have lower feedback strenth for negative images, which is why by default this value is `0.5`. Increasing this increases the influence of negative feedback (without changin the influence of positive feedback).
+   
+   #### ToMe settings
+   These settings are quite technical and understanding them is not strictly necessary for using them. Merge ratio controls the ratio of tokens that get merged: higher merge ratio -> fewer tokens -> more speed and less memory, but lower quality. Max. tokens limits the number of feedback tokens: fewer tokens -> more speed, less memory, but lower quality. The seed controls which tokens have a chance of being merged and is mainly there for reproducibility purposes. Changing the seed can alter the outcome quite significantly depending on how aggressive the other ToMe settings are.
+   
+   More information on ToMe: https://github.com/dbolya/tomesd/tree/main
+</details>
 
 
 ## Citation
