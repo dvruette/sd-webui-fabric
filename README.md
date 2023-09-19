@@ -34,7 +34,80 @@ ComfyUI node (by [@ssitu](https://github.com/ssitu)): https://github.com/ssitu/C
 
 ## How-to and Examples
 
-Coming soon. Feel free to share examples with us if you have found something that works well and we'll add it here :)
+### Basic Usage
+0. Enable the FABRIC extension
+1. Add feedback images:
+      - select an image from a previous generation and press 👍/👎 in the "Current batch" tab OR
+      - select the "Upload image" tab, upload an image of your preference and press 👍/👎
+2. Press "Generate" to generate a batch of images incorporating the selected feedback
+3. Repeat: Add more feedback, optionally adjust your prompt and regenerate
+
+_Tips:_
+- You don't have to keep using the same prompt that you used to generate feedback images. In fact, adjusting the prompt in conjunction with providing feedback is most powerful.
+- While the number of feedback images is only limited by the size of your GPU, using fewer feedback images tends to give better results that clearly reflect both the prompt and feedback. Increasing the number of feedback images can sometimes lead to the model getting confused, giving too much weight to certain feedback images or completely ignoring others.
+
+#### Feedback Strength
+
+The feedback strength controls how much the model pays attention to your feedback images. The higher, the more it will try to stay close to the feedback, potentially ignoring certain aspects of the prompt. Lowering this value is recommended if you're using large numbers of feedback images or if you feel like the model sticks too close to the feedback.
+
+#### Feedback Schedule
+
+Using `feedback start` and `feedback end` it's possible to control at which denoising steps the model tries to incorporate the feedback. As a rule of thumb, early steps will influence high-level, coarse features (overall composition, large objects in the scene, ...) and later steps will influence fine-grained, low-level features (details, texture, small objects, ...). Adjusting these values makes it possible to only use feedback on certain features in the generation. A value of `0.0` corresponds to the first and `1.0` to the last denoising step (linear interpolation in between).
+
+Generally, it's recommended to have feedback active from the start but not until the end, but violating these principles can give interesting results in their own right, especially when simultaneously adjusting feedback strength.
+
+#### Token Merging
+
+Token merging (ToMe) is an optimization technique that improves speed and memory usage at the cost of accuracy. Enabling this _will_ change your results, but it can make generation times significantly faster (I observed up to 50%), especially for large resolutions and large numbers of feedback images.
+
+
+### Examples
+
+#### Style Control using Feedback
+Generating images in a certain style, adding them as feedback and dropping the style from the prompt allows retaining certain aspects from the style while retaining flexibility in the prompt:
+
+| Feedback image | Without feedback | With feedback |
+| --- | --- | --- |
+| ![picture of a horse riding on top of an astronaut, ukiyo-e](static/example_1_feedback.png) | ![picture of a horse riding on top of an astronaut on the beach](static/example_1_before.png) | ![picture of a horse riding on top of an astronaut on the beach](static/example_1_after.png) |
+| picture of a horse riding on top of an astronaut, ukiyo-e | picture of a horse riding on top of an astronaut on the beach | picture of a horse riding on top of an astronaut on the beach |
+
+Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality`; Seed: `1531668169`
+
+#### Feedback Strength
+Feedback strength controls how much the model pays attention to the feedback. This example demonstrates the effect of using different feedback strengths:
+
+| Feedback image | | | |
+| --- | --- | --- | --- |
+| ![pineapple](static/example_3_feedback.png) | | | |
+| weight=0.0 | weight=0.2 | weight=0.4 | weight=0.8 |
+| ![a new york pineapple](static/example_3_00.png) | ![a new york pineapple](static/example_3_02.png) | ![a new york pineapple](static/example_3_04.png) | ![a new york pineapple](static/example_3_08.png) |
+
+Prompt: `[macro picture of a pineapple, zoomcore:photo of new york at sunrise:0.3], masterpiece, trending on artstation[:, extremely detailed, hyperrealistic, 8k:0.5]`; Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality, grayscale`; Seed: `2345285974`;
+
+
+
+#### Feedback Schedule
+By adjusting the feedback schedule, it's possible to control which features are influenced by the feedback. In this example, the feedback is only active between 30% and 60% of the generation, which allows to isolate the effect of the feedback:
+
+| Feedback image | Without feedback | Default schedule (0.0 - 0.8) | Custom schedule (0.3 - 0.6) |
+| --- | --- | --- | --- |
+| ![flowers](static/example_2_feedback.png) | ![a woman with long flowy hair wearing a dress made of pink flowers sitting on a sunny meadow](static/example_2_baseline.png) | ![a woman with long flowy hair wearing a dress made of pink flowers sitting on a sunny meadow](static/example_2_default.png) | ![a woman with long flowy hair wearing a dress made of pink flowers sitting on a sunny meadow](static/example_2_custom.png) |
+
+Prompt: `a woman with long flowy hair wearing a (dress made of pink flowers:1.1) sitting on a sunny meadow, vibrant`; Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality, grayscale, muted colors, monochrome, sepia`; Seed: `2844331335`
+
+
+### Advanced Usage
+
+#### Min. strength
+Adjusting the minimum feedback strength controls how much feedback is incorporated during the passive phase, outside of the feedback schedule (i.e. when FABRIC is "inactive", before `feedback start` and after `feedback end`). This allows emphasizing the feedback during certain phases (feature scales) of the generation but still incorporating at least some of it from beginning to end. By default this is 0, so feedback is only incorporated during the active phase.
+
+#### Negative weight
+The negative weight controls how much negative feedback is incorporated relative the the positive feedback. We have found that it's generally preferrable to have lower feedback strenth for negative images, which is why by default this value is `0.5`. Increasing this increases the influence of negative feedback (without changin the influence of positive feedback).
+
+#### ToMe settings
+These settings are quite technical and understanding them is not strictly necessary for using them. Merge ratio controls the ratio of tokens that get merged: higher merge ratio -> fewer tokens -> more speed and less memory, but lower quality. Max. tokens limits the number of feedback tokens: fewer tokens -> more speed, less memory, but lower quality. The seed controls which tokens have a chance of being merged and is mainly there for reproducibility purposes. Changing the seed can alter the outcome quite significantly depending on how aggressive the other ToMe settings are.
+
+More information on ToMe: https://github.com/dbolya/tomesd/tree/main
 
 
 ## Citation
