@@ -95,7 +95,7 @@ By adjusting the feedback schedule, it's possible to control which features are 
 Prompt: `a woman with long flowy hair wearing a (dress made of pink flowers:1.1) sitting on a sunny meadow, vibrant`; Negative prompt: `lowres, bad anatomy, bad hands, cropped, worst quality, grayscale, muted colors, monochrome, sepia`; Seed: `2844331335`
 
 
-_All examples were created using the DreamShaper 7 model (https://huggingface.co/Lykon/DreamShaper/tree/main)._
+_All examples were created using the DreamShaper 7 model: https://huggingface.co/Lykon/DreamShaper/tree/main_
 
 <details>
    <summary><h3>Advanced Usage</h3></summary>
