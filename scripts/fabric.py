@@ -27,7 +27,7 @@ except ImportError:
     from modules.ui import create_refresh_button
 
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1")
 
