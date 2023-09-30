@@ -202,10 +202,11 @@ def patch_unet_forward_pass(p, unet, params):
                         merge, _ = compute_merge(feedback_ctx, args=tome_args, size=(tome_h_latent * num_fb, w_latent), max_tokens=params.tome_max_tokens)
                         feedback_ctx = merge(feedback_ctx)
                         ctx = torch.cat([context, feedback_ctx], dim=1)  # (n_cond, seq + seq*n_pos, dim)
+                        weights = torch.ones(ctx.shape[1], device=ctx.device, dtype=ctx.dtype) # (seq + seq*n_pos,)
+                        weights[_x.shape[1]:] = w
                     else:
                         ctx = context
-                    weights = torch.ones_like(ctx[0, :, 0])  # (seq + seq*n_pos,)
-                    weights[_x.shape[1]:] = w
+                        weights = None
                     return weighted_attention(attn1, attn1._fabric_old_forward, _x, ctx, weights, **kwargs)  # (n_cond, seq, dim)
 
                 outs = []
